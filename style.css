@@ -1,0 +1,43 @@
+#sideleaf-wand { width: 100%; border: 0; background: transparent; color: inherit; text-align: start; font: inherit; cursor: pointer; }
+#sideleaf-dialog {
+    color: var(--SmartThemeBodyColor, #e7e7ee);
+    background: var(--SmartThemeBlurTintColor, #20212b);
+    border: 1px solid var(--SmartThemeBorderColor, #555866);
+    border-radius: 16px; box-shadow: 0 24px 80px #0006;
+    width: min(760px, calc(100vw - 24px)); height: min(780px, calc(100dvh - 32px));
+    max-width: calc(100vw - 24px); max-height: calc(100dvh - 32px);
+    padding: 20px; margin: auto; font: inherit; text-shadow: none; box-sizing: border-box;
+    overflow: hidden; backdrop-filter: blur(20px);
+}
+#sideleaf-dialog[open] { display: flex; flex-direction: column; gap: 12px; }
+#sideleaf-dialog::backdrop { background: #0007; }
+#sideleaf-dialog * { box-sizing: border-box; }
+#sideleaf-dialog .cd-header, #sideleaf-dialog .cd-card-top, #sideleaf-dialog .cd-footer,
+#sideleaf-dialog .cd-pagination, #sideleaf-dialog .cd-tabs { display: flex; gap: 10px; align-items: center; flex-shrink: 0; }
+#sideleaf-dialog .cd-header, #sideleaf-dialog .cd-footer { justify-content: space-between; }
+#sideleaf-dialog .cd-title { min-width: 0; }
+#sideleaf-dialog h2 { margin: 0; font-size: 1.3em; line-height: 1.5; color: inherit; }
+#sideleaf-dialog .cd-subtitle { margin: 3px 0 0; font-size: .8em; opacity: .7; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#sideleaf-dialog .cd-button { appearance: none; display: inline-flex; justify-content: center; align-items: center; min-height: 38px; padding: 8px 13px; border-radius: 9px; border: 1px solid var(--SmartThemeBorderColor, #555866); background: transparent; color: inherit; font: inherit; font-size: .88em; cursor: pointer; box-shadow: none; line-height: 1.3; white-space: nowrap; }
+#sideleaf-dialog .cd-button:hover:not(:disabled) { background: color-mix(in srgb, currentColor 10%, transparent); }
+#sideleaf-dialog .cd-button:disabled { opacity: .4; cursor: default; }
+#sideleaf-dialog .cd-primary, #sideleaf-dialog .cd-tabs [aria-pressed="true"] { background: color-mix(in srgb, var(--SmartThemeQuoteColor, #aac9bf) 20%, transparent); border-color: var(--SmartThemeQuoteColor, #aac9bf); }
+#sideleaf-dialog :focus-visible { outline: 2px solid var(--SmartThemeQuoteColor, #aac9bf); outline-offset: 3px; }
+#sideleaf-dialog .cd-search { width: 100%; min-height: 40px; padding: 9px 12px; border-radius: 9px; border: 1px solid var(--SmartThemeBorderColor, #555866); background: color-mix(in srgb, currentColor 5%, transparent); color: inherit; font: inherit; }
+#sideleaf-dialog .cd-search::placeholder { color: inherit; opacity: .55; }
+#sideleaf-dialog .cd-hint, #sideleaf-dialog .cd-status { margin: 0; font-size: .8em; line-height: 1.6; flex-shrink: 0; }
+#sideleaf-dialog .cd-hint { opacity: .75; }
+#sideleaf-dialog .cd-list { overflow-y: auto; overscroll-behavior: contain; flex: 1; min-height: 0; padding: 2px; scrollbar-gutter: stable; }
+#sideleaf-dialog .cd-card { border: 1px solid var(--SmartThemeBorderColor, #555866); border-radius: 10px; margin-bottom: 9px; padding: 12px 14px; background: color-mix(in srgb, currentColor 3%, transparent); }
+#sideleaf-dialog .cd-pick { display: flex; align-items: center; gap: 9px; cursor: pointer; min-width: 0; width: 100%; }
+#sideleaf-dialog .cd-pick input { appearance: auto; width: 18px; height: 18px; margin: 0; flex-shrink: 0; accent-color: var(--SmartThemeQuoteColor, #aac9bf); }
+#sideleaf-dialog .cd-pick strong { font-size: .88em; overflow-wrap: anywhere; }
+#sideleaf-dialog .cd-number { margin-inline-start: auto; font-size: .75em; opacity: .55; }
+#sideleaf-dialog summary { cursor: pointer; font-size: .9em; line-height: 1.6; margin-top: 8px; overflow-wrap: anywhere; }
+#sideleaf-dialog .cd-body { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--SmartThemeBorderColor, #555866); }
+#sideleaf-dialog .cd-text { white-space: pre-wrap; overflow-wrap: anywhere; font-size: .95em; line-height: 1.8; }
+#sideleaf-dialog .cd-pagination { justify-content: center; font-size: .85em; }
+#sideleaf-dialog .cd-empty { text-align: center; padding: 45px 20px; opacity: .65; line-height: 1.8; }
+#sideleaf-dialog .cd-status:empty { display: none; }
+#sideleaf-dialog .cd-status[data-error="true"] { color: var(--SmartThemeQuoteColor, #ffc9a2); }
+@media (max-width: 480px) { #sideleaf-dialog { padding: 14px; gap: 9px; } #sideleaf-dialog .cd-card { padding: 10px; } }
