@@ -6,6 +6,17 @@ let counter = 0;
 const id = () => `id-${++counter}`;
 const message = (text, extra = {}) => ({ name: 'Test', mes: text, is_user: false, extra });
 
+test('title-only rename does not create or replace an edited body', () => {
+    const plan = archivePlan([message('keep'), message('original', {display_text:'번역'})], readDrawer({}), [1], id);
+    const renamed = editPlan(plan.chat, plan.drawer, plan.drawer.items[0].id, '새 제목', undefined, id);
+    assert.equal(Object.hasOwn(renamed.drawer.items[0], 'editedText'), false);
+    assert.deepEqual(readingVersions(renamed.drawer.items[0]).map(v=>v.key), ['translation','original']);
+    const edited = editPlan(plan.chat, renamed.drawer, plan.drawer.items[0].id, '제목', '수정된 내용', id);
+    const renamedAgain = editPlan(plan.chat, edited.drawer, plan.drawer.items[0].id, '다른 제목', undefined, id);
+    assert.equal(renamedAgain.drawer.items[0].editedText, '수정된 내용');
+    assert.deepEqual(readingVersions({...plan.drawer.items[0], editedText:'번역'}).map(v=>v.key), ['translation','original']);
+});
+
 test('translation is readable in existing archives without migration', () => {
     const item = {message:message('Hello', {display_text:'안녕하세요'})};
     assert.deepEqual(readingVersions(item).map(v=>v.text), ['안녕하세요', 'Hello']);

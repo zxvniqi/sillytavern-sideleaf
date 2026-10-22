@@ -50,7 +50,8 @@ export function preview(message, limit = 160) {
 
 export function readingVersions(item) {
     const versions = [];
-    if (typeof item.editedText === 'string') versions.push({ key: 'edited', label: '수정본', text: item.editedText });
+    const originals = [item.message?.mes, item.message?.extra?.display_text, item.screenText];
+    if (typeof item.editedText === 'string' && !originals.includes(item.editedText)) versions.push({ key: 'edited', label: '수정본', text: item.editedText });
     const translated = item.message?.extra?.display_text;
     if (typeof translated === 'string' && translated.trim() && translated !== item.message.mes) versions.push({ key: 'translation', label: '번역·표시문', text: translated });
     if (item.screenText?.trim() && !versions.some(v => v.text === item.screenText)) versions.push({ key: 'screen', label: '보관 당시 화면', text: item.screenText });
@@ -61,5 +62,5 @@ export function readingVersions(item) {
 export function editPlan(chat, drawer, itemId, title, editedText, idFactory) {
     if (!drawer.items.some(item => item.id === itemId)) throw new Error('보관 항목이 변경되었습니다. 다시 열어주세요.');
     return { chat: chat.slice(), drawer: { ...drawer, revision: idFactory(), items: drawer.items.map(item => item.id === itemId
-        ? { ...item, title: String(title).trim().slice(0, 160), editedText: String(editedText), editedAt: Date.now() } : item) } };
+        ? { ...item, title: String(title).trim().slice(0, 160), ...(editedText === undefined ? {} : { editedText: String(editedText), editedAt: Date.now() }) } : item) } };
 }

@@ -57,3 +57,24 @@
 #sideleaf-dialog .cd-list { flex: 1 1 auto; max-height: 56dvh; }
 #sideleaf-dialog:has(.cd-editor) { height: min(780px, calc(100dvh - 32px)); }
 @media (max-width: 480px) { #sideleaf-dialog .cd-body { padding: 14px 0; } #sideleaf-dialog .cd-reader-tools .cd-button { flex: 1; } }
+
+/* Reading space follows the viewport and the live chat's computed appearance. */
+#sideleaf-dialog, #sideleaf-dialog:has(.cd-editor) {
+    width: calc(100vw - 24px); max-width: none; height: calc(100dvh - 24px);
+    max-height: calc(100dvh - 24px); min-height: 0; border-radius: 10px; backdrop-filter: none;
+}
+#sideleaf-dialog .cd-list { max-height: none; flex: 1; }
+#sideleaf-dialog .cd-text { max-width: none; font-size: 1em; line-height: inherit; letter-spacing: inherit; }
+#sideleaf-dialog .cd-body { padding: 20px 16px; }
+#sideleaf-dialog .cd-card { background: var(--sideleaf-message-bg, transparent); }
+#sideleaf-dialog .cd-version { background: transparent; color: inherit; }
+#sideleaf-dialog .cd-version option { background: Canvas; color: CanvasText; }
+#sideleaf-dialog .cd-reading-content { flex: 1; overflow-y: auto; min-height: 0; }
+#sideleaf-dialog .cd-reading-content .cd-card { padding: 12px 24px; border: 0; }
+#sideleaf-dialog .cd-primary, #sideleaf-dialog .cd-tabs [aria-pressed="true"] { background: color-mix(in srgb, currentColor 12%, transparent); border-color: currentColor; }
+#sideleaf-dialog :focus-visible { outline-color: currentColor; }
+#sideleaf-dialog.cd-reading .cd-reader-tools { position: static; margin-top: 0; }
+@media (max-width: 480px) {
+    #sideleaf-dialog, #sideleaf-dialog:has(.cd-editor) { width: 100vw; height: 100dvh; max-height: 100dvh; border-radius: 0; padding: 12px; }
+    #sideleaf-dialog .cd-reading-content .cd-card, #sideleaf-dialog .cd-body { padding: 10px 0; }
+}

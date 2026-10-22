@@ -13,6 +13,9 @@ let search = '';
 let searchTimer;
 let pending = null;
 let editing = null;
+let reader = false;
+let composing = false;
+let expanded = new Set();
 const id = () => context().uuidv4?.() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
 
 function el(tag, className, text) {
@@ -120,7 +123,7 @@ async function finishSave() {
     } finally {
         busy = false; page = 0; view = 'archive'; render();
     }
-    note(operation.kind === 'archive' ? '선택한 메시지를 별지에 보관했습니다.' : operation.kind === 'edit' ? '제목과 읽기용 본문을 저장했습니다.' : '선택한 메시지를 채팅 끝에 복원했습니다.');
+    note(operation.kind === 'archive' ? '선택한 메시지를 별지에 보관했습니다.' : operation.kind === 'edit' ? '변경 사항을 저장했습니다.' : '선택한 메시지를 채팅 끝에 복원했습니다.');
 }
 
 function close() {
@@ -129,6 +132,7 @@ function close() {
     clearTimeout(searchTimer);
     dialog?.close(); dialog?.remove(); dialog = null;
     snapshot = []; selected.clear(); search = '';
+    reader = false; expanded.clear(); composing = false;
 }
 
 function downloadRecovery() {
@@ -147,12 +151,14 @@ function open() {
     dialog.setAttribute('aria-label', '별지');
     dialog.addEventListener('cancel', event => { event.preventDefault(); close(); });
     document.body.append(dialog);
+    applyChatAppearance();
     render(); dialog.showModal();
 }
 
 function render() {
     if (!dialog) return;
-    if (editing && !busy) return;
+    if ((editing || reader || composing) && !busy) return;
+    dialog.classList.remove('cd-reading');
     const ctx = context();
     const generating = isGenerating();
     let drawer;
@@ -169,12 +175,23 @@ function render() {
         nav.append(tab);
     }
     const toolbar = el('div', 'cd-toolbar');
-    const input = el('input', 'cd-search'); input.type = 'search'; input.placeholder = '내용·이름 검색'; input.setAttribute('aria-label', '내용·이름 검색'); input.value = search;
+    const input = el('input', 'cd-search'); input.type = 'search'; input.placeholder = '제목·내용·이름 검색'; input.setAttribute('aria-label', '내용·이름 검색'); input.value = search;
     input.disabled = busy || Boolean(pending);
-    input.addEventListener('input', () => {
+    const updateSearch = () => {
         clearTimeout(searchTimer);
-        searchTimer = setTimeout(() => { search = input.value; page = 0; render(); const next = dialog.querySelector('.cd-search'); next.focus(); }, 180);
-    });
+        if (composing) return;
+        searchTimer = setTimeout(() => {
+            if (!dialog || editing || reader) return;
+            search = input.value; page = 0; expanded.clear();
+            const focused = document.activeElement === input;
+            const start = input.selectionStart, end = input.selectionEnd;
+            render();
+            if (focused) { const next = dialog.querySelector('.cd-search'); next?.focus(); next?.setSelectionRange(start, end); }
+        }, 250);
+    };
+    input.addEventListener('input', updateSearch);
+    input.addEventListener('compositionstart', () => { composing = true; clearTimeout(searchTimer); });
+    input.addEventListener('compositionend', () => { composing = false; updateSearch(); });
     toolbar.append(input);
     const hint = el('p', 'cd-hint', view === 'archive'
         ? '이 채팅에서 보관한 메시지만 표시합니다. 복원하면 채팅 끝에 추가됩니다.'
@@ -189,7 +206,7 @@ function render() {
     const filtered = query ? items.filter(item => `${item.title || ''}\n${item.message.name || ''}\n${readingVersions(item).map(v => v.text).join('\n')}`.toLocaleLowerCase().includes(query)) : items;
     const pages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
     page = Math.min(page, pages - 1);
-    for (const item of filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)) list.append(row({ ...item, autoOpen: view === 'archive' && filtered.length === 1 }));
+    for (const item of filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)) list.append(row(item));
     if (!filtered.length) list.append(el('p', 'cd-empty', query ? '검색 결과가 없습니다.' : view === 'archive' ? '아직 비어 있어요. 메시지 선택에서 필요한 내용만 보관하세요.' : '선택할 메시지가 없습니다.'));
     const pagination = el('div', 'cd-pagination');
     const previous = button('이전', () => { page--; render(); }); previous.disabled = page === 0 || busy || Boolean(pending);
@@ -214,7 +231,7 @@ function render() {
     dialog.replaceChildren(heading, nav, toolbar, hint, list, pagination, footer, status);
 }
 
-function row(item) {
+function row(item, full = false) {
     const card = el('article', 'cd-card');
     const top = el('div', 'cd-card-top');
     const label = el('label', 'cd-pick');
@@ -247,8 +264,12 @@ function row(item) {
         shown += 20000; body.append(chunk);
         if (shown < fullText.length) body.append(more);
     }
-    details.addEventListener('toggle', () => { if (details.open && !shown) appendText(); });
-    if (item.autoOpen) { details.open = true; appendText(); }
+    details.addEventListener('toggle', () => {
+        if (!details.isConnected) return;
+        if (details.open) { if (!shown) appendText(); if (!full) expanded.add(item.key); }
+        else expanded.delete(item.key);
+    });
+    if (full || expanded.has(item.key)) { details.open = true; appendText(); }
     if (view === 'archive') {
         const tools = el('div', 'cd-reader-tools');
         if (versions.length > 1) {
@@ -257,10 +278,12 @@ function row(item) {
             select.addEventListener('change', () => { current = versions.find(v => v.key === select.value); fullText = current.text; shown = 0; body.replaceChildren(); appendText(); });
             tools.append(select);
         }
-        tools.append(button('복사', () => copyText(current.text)), button('제목·본문 수정', () => editItem(item, current.text)));
+        if (!full) tools.append(button('크게 읽기', () => showReader(item)));
+        tools.append(button('복사', () => copyText(current.text)), button('제목 수정', () => editItem(item, current.text, true)), button('본문 수정', () => editItem(item, current.text)));
         details.insertBefore(tools, body);
     }
-    card.append(top, details);
+    if (full) { summary.hidden = true; card.append(details); }
+    else card.append(top, details);
     return card;
 }
 
@@ -275,9 +298,12 @@ async function copyText(text) {
     } catch (error) { note(error.message || '복사하지 못했습니다.', true); }
 }
 
-function editItem(item, text) {
+function editItem(item, text, titleOnly = false) {
     if (busy || pending) return;
     editing = item.key;
+    clearTimeout(searchTimer);
+    const wasReader = reader;
+    reader = false;
     const header = el('header', 'cd-header'); header.append(el('h2', '', '보관본 편집'));
     const titleLabel = el('label', 'cd-edit-label', '제목');
     const title = el('input', 'cd-search'); title.value = item.title || ''; title.maxLength = 160; title.setAttribute('aria-label', '제목'); titleLabel.append(title);
@@ -285,9 +311,43 @@ function editItem(item, text) {
     const body = el('textarea', 'cd-editor'); body.value = text; body.setAttribute('aria-label', '읽기용 본문'); bodyLabel.append(body);
     const hint = el('p', 'cd-hint', '수정본은 별지에서 읽고 복사할 때 사용합니다. 원문·번역은 따로 보존하며, 채팅 복원은 원본 메시지를 사용합니다.');
     const footer = el('footer', 'cd-footer');
-    footer.append(button('취소', () => { editing = null; render(); }), button('저장', () => commit('edit', {id:item.key, title:title.value, text:body.value}), 'cd-primary'));
+    footer.append(button('취소', () => { editing = null; if (wasReader) showReader(item); else render(); }), button('저장', () => commit('edit', {id:item.key, title:title.value, text:titleOnly || body.value === text ? undefined : body.value}), 'cd-primary'));
     const status = el('p', 'cd-status'); status.setAttribute('role', 'status');
-    dialog.replaceChildren(header, titleLabel, bodyLabel, hint, footer, status); title.focus();
+    dialog.replaceChildren(header, titleLabel, ...(titleOnly ? [] : [bodyLabel, hint]), footer, status); title.focus();
+}
+
+function showReader(item) {
+    clearTimeout(searchTimer); reader = true;
+    dialog.classList.add('cd-reading');
+    const heading = el('header', 'cd-header');
+    heading.append(el('h2', '', item.title || '메시지 읽기'), button('목록으로', () => { reader = false; dialog.classList.remove('cd-reading'); render(); }));
+    const content = el('div', 'cd-reading-content'); content.append(row(item, true));
+    const status = el('p', 'cd-status'); status.setAttribute('role', 'status');
+    dialog.replaceChildren(heading, content, status); content.scrollTop = 0;
+}
+
+function applyChatAppearance() {
+    const chat = document.querySelector('#chat');
+    if (!chat) return;
+    const text = getComputedStyle(chat.querySelector('.mes_text') || chat);
+    for (const [name, value] of Object.entries({color:text.color, 'font-family':text.fontFamily, 'font-size':text.fontSize, 'line-height':text.lineHeight, 'letter-spacing':text.letterSpacing})) dialog.style.setProperty(name, value);
+    const layers = [];
+    let color = '';
+    for (let node = chat; node; node = node.parentElement) {
+        const style = getComputedStyle(node);
+        if (style.backgroundImage !== 'none') layers.push(style.backgroundImage);
+        if (style.backgroundColor !== 'rgba(0, 0, 0, 0)' && style.backgroundColor !== 'transparent') {
+            layers.push(`linear-gradient(${style.backgroundColor}, ${style.backgroundColor})`);
+            if (!style.backgroundColor.startsWith('rgba')) { color = style.backgroundColor; break; }
+        }
+    }
+    const background = document.querySelector('#bg1');
+    if (!color && background) { const style = getComputedStyle(background); if (style.backgroundImage !== 'none') layers.push(style.backgroundImage); color = style.backgroundColor; }
+    dialog.style.backgroundColor = color || '#20212b';
+    dialog.style.backgroundImage = layers.length ? layers.join(',') : 'none';
+    dialog.style.backgroundSize = 'cover'; dialog.style.backgroundPosition = 'center';
+    const message = chat.querySelector('.mes');
+    if (message) dialog.style.setProperty('--sideleaf-message-bg', getComputedStyle(message).backgroundColor);
 }
 
 async function archiveFromMessage(event) {
@@ -326,7 +386,7 @@ function initialize() {
     addMessageButtons();
     // Preview/dry-run generation also emits STARTED, sometimes without ENDED.
     // Read the core state instead of keeping a potentially stale event latch.
-    const updateGeneration = () => { if (dialog) setTimeout(() => { if (dialog) render(); }, 0); };
+    const updateGeneration = () => { if (dialog) setTimeout(() => { if (dialog && !document.activeElement?.matches('.cd-search')) render(); }, 0); };
     on('GENERATION_STARTED', updateGeneration);
     on('GENERATION_ENDED', updateGeneration);
     on('GENERATION_STOPPED', updateGeneration);
