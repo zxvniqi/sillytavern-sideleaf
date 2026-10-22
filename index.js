@@ -1,4 +1,4 @@
-import { KEY, PAGE_SIZE, readDrawer, archivePlan, restorePlan, chatIdentity, preview } from './model.js';
+import { KEY, PAGE_SIZE, readDrawer, archivePlan, restorePlan, chatIdentity, preview, readingVersions, editPlan } from './model.js';
 import { isGenerating } from '../../../../script.js';
 
 const context = () => SillyTavern.getContext();
@@ -12,6 +12,7 @@ let snapshot = [];
 let search = '';
 let searchTimer;
 let pending = null;
+let editing = null;
 const id = () => context().uuidv4?.() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
 
 function el(tag, className, text) {
@@ -29,10 +30,12 @@ function button(text, action, className = '') {
 function note(text, error = false) {
     const node = dialog?.querySelector('.cd-status');
     if (node) { node.textContent = text; node.dataset.error = String(error); }
+    else if (error) globalThis.toastr?.error(text, '별지');
+    else globalThis.toastr?.success(text, '별지');
 }
 function assertReady() {
     const ctx = context();
-    if (!chatIdentity(ctx) || chatIdentity(ctx) !== openedChat) throw new Error('저장된 채팅을 열고 별지을 다시 열어주세요.');
+    if (!chatIdentity(ctx) || chatIdentity(ctx) !== openedChat) throw new Error('저장된 채팅을 열고 별지를 다시 열어주세요.');
     if (isGenerating() || ctx.streamingProcessor && !ctx.streamingProcessor.isFinished) throw new Error('응답 생성이 끝난 뒤 다시 시도해주세요.');
     if (document.querySelector('#chat .mes_edit_textarea, #chat #curEditTextarea')) throw new Error('메시지 편집을 마친 뒤 다시 시도해주세요.');
     return ctx;
@@ -60,19 +63,25 @@ async function refreshChat() {
     // Only rebuild message nodes; keep unrelated chat overlays and extension state.
     document.querySelectorAll('#chat > .mes, #chat > #show_more_messages').forEach(node => node.remove());
     await context().printMessages();
+    addMessageButtons();
 }
 
-async function commit(kind) {
+async function commit(kind, edit = null) {
     if (busy || pending) return;
     try {
         const ctx = assertReady();
-        if (!selected.size) return;
+        if (!edit && !selected.size) return;
         if (view === 'select' && (snapshot.length !== ctx.chat.length || snapshot.some((message, i) => message !== ctx.chat[i]))) {
             selected.clear(); render(); throw new Error('대화가 변경되어 선택을 해제했습니다. 다시 골라주세요.');
         }
-        const plan = kind === 'archive'
+        const plan = edit ? editPlan(ctx.chat, readDrawer(ctx.chatMetadata), edit.id, edit.title, edit.text, id) : kind === 'archive'
             ? archivePlan(ctx.chat, readDrawer(ctx.chatMetadata), [...selected], id)
             : restorePlan(ctx.chat, readDrawer(ctx.chatMetadata), [...selected], id);
+        if (kind === 'archive') for (const item of plan.affected) {
+            const text = document.querySelector(`#chat .mes[mesid="${item.originalIndex}"] .mes_text`)?.innerText?.trim();
+            // Capture only the selected message body, never the surrounding chat/UI.
+            if (text && !item.message.extra?.display_text && text !== String(item.message.mes).trim()) item.screenText = text;
+        }
         busy = true;
         pending = { ctx, kind, revision: plan.drawer.revision, identity: openedChat,
             recovery: [{ user_name: ctx.name1, character_name: ctx.name2,
@@ -82,10 +91,12 @@ async function commit(kind) {
         ctx.chat.length = 0;
         for (const message of plan.chat) ctx.chat.push(message);
         selected.clear();
+        editing = null;
         render();
         await finishSave();
     } catch (error) {
         busy = false;
+        if (pending && !dialog) open();
         render(); note(error.message, true);
         console.error('[Sideleaf]', error);
     }
@@ -103,17 +114,18 @@ async function finishSave() {
     if (chatIdentity(context()) !== operation.identity) throw new Error('채팅이 바뀌었습니다. 저장한 채팅을 다시 열어 확인해주세요.');
     pending = null;
     try {
-        await refreshChat();
+        if (operation.kind !== 'edit') await refreshChat();
         if (operation.kind === 'archive') await context().eventSource.emit(context().eventTypes.MESSAGE_DELETED, context().chat.length);
         await context().eventSource.emit('sideleaf:changed', { kind: operation.kind, chatId: context().chatId });
     } finally {
         busy = false; page = 0; view = 'archive'; render();
     }
-    note(operation.kind === 'archive' ? '선택한 메시지를 별지에 보관했습니다.' : '선택한 메시지를 채팅 끝에 복원했습니다.');
+    note(operation.kind === 'archive' ? '선택한 메시지를 별지에 보관했습니다.' : operation.kind === 'edit' ? '제목과 읽기용 본문을 저장했습니다.' : '선택한 메시지를 채팅 끝에 복원했습니다.');
 }
 
 function close() {
     if (busy || pending) { note('저장을 확인한 뒤 닫아주세요.', true); return; }
+    if (editing) { note('편집을 저장하거나 취소한 뒤 닫아주세요.', true); return; }
     clearTimeout(searchTimer);
     dialog?.close(); dialog?.remove(); dialog = null;
     snapshot = []; selected.clear(); search = '';
@@ -140,6 +152,7 @@ function open() {
 
 function render() {
     if (!dialog) return;
+    if (editing && !busy) return;
     const ctx = context();
     const generating = isGenerating();
     let drawer;
@@ -170,13 +183,13 @@ function render() {
     if (view === 'select' && snapshot.length && (snapshot.length !== ctx.chat.length || snapshot.some((message, i) => message !== ctx.chat[i]))) selected.clear();
     snapshot = ctx.chat.slice();
     const items = view === 'archive'
-        ? drawer.items.map((item, index) => ({ key: item.id, message: item.message, index: item.originalIndex, archivedAt: item.archivedAt, order: index })).reverse()
+        ? drawer.items.map((item, index) => ({ ...item, key: item.id, index: item.originalIndex, order: index })).reverse()
         : ctx.chat.map((message, index) => ({ key: index, message, index })).reverse();
     const query = search.trim().toLocaleLowerCase();
-    const filtered = query ? items.filter(item => `${item.message.name || ''}\n${item.message.mes || ''}`.toLocaleLowerCase().includes(query)) : items;
+    const filtered = query ? items.filter(item => `${item.title || ''}\n${item.message.name || ''}\n${readingVersions(item).map(v => v.text).join('\n')}`.toLocaleLowerCase().includes(query)) : items;
     const pages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
     page = Math.min(page, pages - 1);
-    for (const item of filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)) list.append(row(item));
+    for (const item of filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)) list.append(row({ ...item, autoOpen: view === 'archive' && filtered.length === 1 }));
     if (!filtered.length) list.append(el('p', 'cd-empty', query ? '검색 결과가 없습니다.' : view === 'archive' ? '아직 비어 있어요. 메시지 선택에서 필요한 내용만 보관하세요.' : '선택할 메시지가 없습니다.'));
     const pagination = el('div', 'cd-pagination');
     const previous = button('이전', () => { page--; render(); }); previous.disabled = page === 0 || busy || Boolean(pending);
@@ -217,12 +230,16 @@ function row(item) {
     label.append(check, el('strong', '', item.message.name || (item.message.is_user ? '사용자' : 'AI')), el('span', 'cd-number', `#${item.index}`));
     top.append(label);
     const details = el('details', 'cd-detail');
-    const summary = el('summary', '', preview(item.message));
+    const versions = readingVersions(item);
+    let current = versions[0];
+    const summary = el('summary');
+    summary.append(el('strong', 'cd-item-title', item.title || preview({ mes: current.text }, 60)));
+    if (view === 'archive') summary.append(el('span', 'cd-item-meta', `${current.label} · ${new Date(item.archivedAt).toLocaleDateString()}`));
     const body = el('div', 'cd-body');
     details.append(summary, body);
     // Read-only text prevents QR HTML/iframe/JS extensions from executing archived content.
     let shown = 0;
-    const fullText = String(item.message.mes || '');
+    let fullText = current.text;
     const more = button('본문 더 보기', () => appendText());
     function appendText() {
         more.remove();
@@ -231,8 +248,65 @@ function row(item) {
         if (shown < fullText.length) body.append(more);
     }
     details.addEventListener('toggle', () => { if (details.open && !shown) appendText(); });
+    if (item.autoOpen) { details.open = true; appendText(); }
+    if (view === 'archive') {
+        const tools = el('div', 'cd-reader-tools');
+        if (versions.length > 1) {
+            const select = el('select', 'cd-version'); select.setAttribute('aria-label', '읽을 본문');
+            for (const version of versions) { const option = el('option', '', version.label); option.value = version.key; select.append(option); }
+            select.addEventListener('change', () => { current = versions.find(v => v.key === select.value); fullText = current.text; shown = 0; body.replaceChildren(); appendText(); });
+            tools.append(select);
+        }
+        tools.append(button('복사', () => copyText(current.text)), button('제목·본문 수정', () => editItem(item, current.text)));
+        details.insertBefore(tools, body);
+    }
     card.append(top, details);
     return card;
+}
+
+async function copyText(text) {
+    try {
+        if (navigator.clipboard && globalThis.isSecureContext) await navigator.clipboard.writeText(text);
+        else {
+            const area = el('textarea'); area.value = text; area.className = 'cd-clipboard'; dialog.append(area); area.select();
+            const copied = document.execCommand('copy'); area.remove(); if (!copied) throw new Error('복사 권한을 확인해주세요.');
+        }
+        note('현재 보고 있는 본문을 복사했습니다.');
+    } catch (error) { note(error.message || '복사하지 못했습니다.', true); }
+}
+
+function editItem(item, text) {
+    if (busy || pending) return;
+    editing = item.key;
+    const header = el('header', 'cd-header'); header.append(el('h2', '', '보관본 편집'));
+    const titleLabel = el('label', 'cd-edit-label', '제목');
+    const title = el('input', 'cd-search'); title.value = item.title || ''; title.maxLength = 160; title.setAttribute('aria-label', '제목'); titleLabel.append(title);
+    const bodyLabel = el('label', 'cd-edit-label cd-edit-body', '읽기용 본문');
+    const body = el('textarea', 'cd-editor'); body.value = text; body.setAttribute('aria-label', '읽기용 본문'); bodyLabel.append(body);
+    const hint = el('p', 'cd-hint', '수정본은 별지에서 읽고 복사할 때 사용합니다. 원문·번역은 따로 보존하며, 채팅 복원은 원본 메시지를 사용합니다.');
+    const footer = el('footer', 'cd-footer');
+    footer.append(button('취소', () => { editing = null; render(); }), button('저장', () => commit('edit', {id:item.key, title:title.value, text:body.value}), 'cd-primary'));
+    const status = el('p', 'cd-status'); status.setAttribute('role', 'status');
+    dialog.replaceChildren(header, titleLabel, bodyLabel, hint, footer, status); title.focus();
+}
+
+async function archiveFromMessage(event) {
+    if (busy || pending || dialog?.open) return;
+    const index = Number(event.currentTarget.closest('.mes')?.getAttribute('mesid'));
+    if (!Number.isInteger(index)) return;
+    openedChat = chatIdentity(context()); view = 'select'; snapshot = context().chat.slice(); selected = new Set([index]);
+    await commit('archive');
+}
+
+function addMessageButtons() {
+    for (const message of document.querySelectorAll('#chat .mes[mesid]')) {
+        if (message.querySelector('.sideleaf-archive-button')) continue;
+        const target = message.querySelector('.extraMesButtons, .mes_buttons');
+        if (!target) continue;
+        const entry = el('button', 'sideleaf-archive-button mes_button fa-solid fa-box-archive');
+        entry.type = 'button'; entry.title = '별지에 보관'; entry.setAttribute('aria-label', '별지에 보관');
+        entry.addEventListener('click', archiveFromMessage); target.append(entry);
+    }
 }
 
 function initialize() {
@@ -246,6 +320,10 @@ function initialize() {
     container.append(entry); menu.append(container);
     const ctx = context();
     const on = (type, handler) => { if (ctx.eventTypes[type]) ctx.eventSource.on(ctx.eventTypes[type], handler); };
+    let buttonsQueued = false;
+    const queueButtons = () => { if (buttonsQueued) return; buttonsQueued = true; requestAnimationFrame(() => { buttonsQueued = false; addMessageButtons(); }); };
+    for (const event of ['CHAT_CHANGED', 'CHARACTER_MESSAGE_RENDERED', 'USER_MESSAGE_RENDERED', 'MESSAGE_UPDATED', 'MESSAGE_SWIPED', 'MORE_MESSAGES_LOADED']) on(event, queueButtons);
+    addMessageButtons();
     // Preview/dry-run generation also emits STARTED, sometimes without ENDED.
     // Read the core state instead of keeping a potentially stale event latch.
     const updateGeneration = () => { if (dialog) setTimeout(() => { if (dialog) render(); }, 0); };

@@ -41,3 +41,19 @@
 #sideleaf-dialog .cd-status:empty { display: none; }
 #sideleaf-dialog .cd-status[data-error="true"] { color: var(--SmartThemeQuoteColor, #ffc9a2); }
 @media (max-width: 480px) { #sideleaf-dialog { padding: 14px; gap: 9px; } #sideleaf-dialog .cd-card { padding: 10px; } }
+
+#chat .sideleaf-archive-button { appearance: none; border: 0; background: transparent; color: inherit; cursor: pointer; padding: 4px; font-size: inherit; }
+#sideleaf-dialog .cd-item-title { display: inline; font-size: 1.05em; font-weight: 600; }
+#sideleaf-dialog .cd-item-meta { display: block; margin-top: 5px; opacity: .6; font-size: .78em; font-weight: normal; }
+#sideleaf-dialog .cd-reader-tools { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 14px; }
+#sideleaf-dialog .cd-version { color: inherit; background: var(--SmartThemeBlurTintColor, #20212b); border: 1px solid var(--SmartThemeBorderColor, #555866); border-radius: 8px; padding: 8px; font: inherit; font-size: .85em; max-width: 100%; }
+#sideleaf-dialog .cd-body { padding: 20px 8px; }
+#sideleaf-dialog .cd-text { max-width: 68ch; margin-inline: auto; line-height: 1.95; letter-spacing: .01em; }
+#sideleaf-dialog .cd-edit-label { display: flex; flex-direction: column; gap: 8px; font-size: .88em; }
+#sideleaf-dialog .cd-edit-body { flex: 1; min-height: 0; }
+#sideleaf-dialog .cd-editor { flex: 1; min-height: 120px; width: 100%; resize: none; padding: 16px; line-height: 1.8; font: inherit; color: inherit; background: color-mix(in srgb, currentColor 3%, transparent); border: 1px solid var(--SmartThemeBorderColor, #555866); border-radius: 10px; }
+#sideleaf-dialog .cd-clipboard { position: fixed; left: 0; top: 0; width: 1px; height: 1px; opacity: .01; }
+#sideleaf-dialog { height: auto; min-height: min(380px, calc(100dvh - 32px)); }
+#sideleaf-dialog .cd-list { flex: 1 1 auto; max-height: 56dvh; }
+#sideleaf-dialog:has(.cd-editor) { height: min(780px, calc(100dvh - 32px)); }
+@media (max-width: 480px) { #sideleaf-dialog .cd-body { padding: 14px 0; } #sideleaf-dialog .cd-reader-tools .cd-button { flex: 1; } }

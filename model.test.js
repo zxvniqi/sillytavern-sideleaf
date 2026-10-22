@@ -1,10 +1,28 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { archivePlan, restorePlan, readDrawer, chatIdentity, KEY } from './model.js';
+import { archivePlan, restorePlan, readDrawer, chatIdentity, KEY, readingVersions, editPlan } from './model.js';
 
 let counter = 0;
 const id = () => `id-${++counter}`;
 const message = (text, extra = {}) => ({ name: 'Test', mes: text, is_user: false, extra });
+
+test('translation is readable in existing archives without migration', () => {
+    const item = {message:message('Hello', {display_text:'안녕하세요'})};
+    assert.deepEqual(readingVersions(item).map(v=>v.text), ['안녕하세요', 'Hello']);
+    assert.equal(readingVersions({message:message('old archive')})[0].text, 'old archive');
+});
+
+test('editing preserves original, translation, swipes and unrelated active history', () => {
+    const chat = [message('keep'), {...message('Hello', {display_text:'안녕하세요'}), swipes:['Hello','Hi']}];
+    const archived = archivePlan(chat, readDrawer({}), [1], id);
+    const before = structuredClone(archived.drawer);
+    const edited = editPlan(archived.chat, archived.drawer, archived.drawer.items[0].id, '제목', '수정된 본문', id);
+    assert.deepEqual(archived.drawer, before);
+    assert.notEqual(edited.chat, archived.chat);
+    assert.equal(edited.drawer.items[0].title, '제목');
+    assert.deepEqual(readingVersions(edited.drawer.items[0]).map(v=>v.text), ['수정된 본문','안녕하세요','Hello']);
+    assert.deepEqual(restorePlan(edited.chat, edited.drawer, [edited.drawer.items[0].id], id).chat, chat);
+});
 
 test('only selected messages leave active history; all original fields survive', () => {
     const original = [message('keep'), { ...message('QR', { reasoning: 'reason', image: 'image.png' }), swipes: ['QR', 'alternative'], swipe_id: 0, swipe_info: [{ extra: { custom: [1, 2] } }] }, message('last')];

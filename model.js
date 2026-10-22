@@ -4,7 +4,7 @@ export const PAGE_SIZE = 30;
 export function readDrawer(metadata) {
     const data = metadata?.[KEY];
     if (data === undefined) return { version: 1, revision: '', items: [] };
-    if (data.version !== 1 || !Array.isArray(data.items)) throw new Error('지원하지 않는 서랍 데이터입니다. 원본은 변경하지 않았습니다.');
+    if (!data || data.version !== 1 || !Array.isArray(data.items)) throw new Error('지원하지 않는 별지 데이터입니다. 원본은 변경하지 않았습니다.');
     return data;
 }
 
@@ -46,4 +46,20 @@ export function chatIdentity(context) {
 
 export function preview(message, limit = 160) {
     return String(message?.mes ?? '').slice(0, limit * 3).replace(/\s+/g, ' ').slice(0, limit) || '(본문 없는 메시지)';
+}
+
+export function readingVersions(item) {
+    const versions = [];
+    if (typeof item.editedText === 'string') versions.push({ key: 'edited', label: '수정본', text: item.editedText });
+    const translated = item.message?.extra?.display_text;
+    if (typeof translated === 'string' && translated.trim() && translated !== item.message.mes) versions.push({ key: 'translation', label: '번역·표시문', text: translated });
+    if (item.screenText?.trim() && !versions.some(v => v.text === item.screenText)) versions.push({ key: 'screen', label: '보관 당시 화면', text: item.screenText });
+    versions.push({ key: 'original', label: '원문', text: String(item.message?.mes ?? '') });
+    return versions;
+}
+
+export function editPlan(chat, drawer, itemId, title, editedText, idFactory) {
+    if (!drawer.items.some(item => item.id === itemId)) throw new Error('보관 항목이 변경되었습니다. 다시 열어주세요.');
+    return { chat: chat.slice(), drawer: { ...drawer, revision: idFactory(), items: drawer.items.map(item => item.id === itemId
+        ? { ...item, title: String(title).trim().slice(0, 160), editedText: String(editedText), editedAt: Date.now() } : item) } };
 }
