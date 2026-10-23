@@ -1,8 +1,8 @@
 // One consistent set: 24px grid, round 1.8px strokes. Dots use zero-length
 // segments so they inherit the stroke colour of the current theme.
 const paths = {
-    // Brand mark: a separate sheet (별지) tucked behind a written page.
-    leaf: ['M9 6V4.2a1.2 1.2 0 0 1 1.2-1.2h6.3L20.5 7v10.3a1.2 1.2 0 0 1-1.2 1.2H17', 'M4.5 7.2A1.2 1.2 0 0 1 5.7 6h6.8l4.5 4.5v9.3a1.2 1.2 0 0 1-1.2 1.2H5.7a1.2 1.2 0 0 1-1.2-1.2Z', 'M12.5 6v4.5H17', 'M7.5 14.5h6M7.5 17.5h4'],
+    // Brand mark: a filled star (별), distinct from the outline glyphs in the message menu.
+    leaf: ['M12 3.8L14.29 9.64L20.56 10.02L15.71 14.01L17.29 20.08L12 16.7L6.71 20.08L8.29 14.01L3.44 10.02L9.71 9.64Z'],
     search: ['M10.8 18a7.2 7.2 0 1 0 0-14.4 7.2 7.2 0 0 0 0 14.4Z', 'm20.4 20.4-4.5-4.5'],
     close: ['M6.5 6.5l11 11M17.5 6.5l-11 11'],
     edit: ['M4 20h4.2L19.1 9.1a2.9 2.9 0 0 0-4.2-4.2L4 15.8V20Z', 'm13.4 6.4 4.2 4.2'],
@@ -25,12 +25,16 @@ const paths = {
     split: ['M4.5 4.5h7v15h-7z', 'M15 7.5h4.5v12H15', 'M15 4.5h4.5'],
 };
 const heavy = new Set(['grip']);
+// Filled shapes keep a thin same-colour stroke only to soften their corners.
+const filled = new Set(['leaf']);
 export function icon(name) {
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
     svg.setAttribute('viewBox', '0 0 24 24'); svg.setAttribute('aria-hidden', 'true'); svg.classList.add('cd-icon');
+    if (filled.has(name)) svg.classList.add('cd-filled');
     for (const d of paths[name] || paths.leaf) {
         const path = document.createElementNS(svg.namespaceURI, 'path'); path.setAttribute('d', d);
-        path.setAttribute('fill', 'none'); path.setAttribute('stroke', 'currentColor'); path.setAttribute('stroke-width', heavy.has(name) ? '2.6' : '1.8');
+        path.setAttribute('fill', filled.has(name) ? 'currentColor' : 'none'); path.setAttribute('stroke', 'currentColor');
+        path.setAttribute('stroke-width', filled.has(name) ? '1.2' : heavy.has(name) ? '2.6' : '1.8');
         path.setAttribute('stroke-linecap', 'round'); path.setAttribute('stroke-linejoin', 'round'); svg.append(path);
     }
     return svg;

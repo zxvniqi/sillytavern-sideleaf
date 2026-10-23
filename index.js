@@ -413,7 +413,7 @@ function render() {
         const empty = el('div', 'cd-empty'); empty.append(icon(query ? 'search' : 'leaf'));
         if (query) empty.append(el('p', '', '검색 결과가 없습니다.'));
         else if (view === 'archive') {
-            empty.append(el('strong', '', '아직 보관한 메시지가 없어요'), el('p', '', '메시지 메뉴의 별지 아이콘이나 아래 버튼으로 필요한 메시지만 옮겨두세요.'));
+            empty.append(el('strong', '', '아직 보관한 메시지가 없어요'), el('p', '', '메시지 메뉴의 별 아이콘이나 아래 버튼으로 필요한 메시지만 옮겨두세요.'));
             const go = button('메시지 보관하기', () => { view = 'select'; page = 0; render(); }, 'cd-primary'); go.disabled = locked; empty.append(go);
         } else empty.append(el('p', '', '보관할 메시지가 없습니다.'));
         list.append(empty);
