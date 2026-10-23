@@ -51,7 +51,8 @@
 #sideleaf-dialog .cd-button:hover:not(:disabled) { background: var(--sl-hover); }
 #sideleaf-dialog .cd-button:active:not(:disabled) { transform: translateY(1px); }
 #sideleaf-dialog .cd-button:disabled { opacity: .38; cursor: default; }
-#sideleaf-dialog .cd-labelled { border-color: var(--sl-line); }
+/* A soft fill keeps labelled buttons recognisable when a theme strips button borders. */
+#sideleaf-dialog .cd-labelled { border-color: var(--sl-line); background: var(--sl-soft); }
 #sideleaf-dialog .cd-icon-button { width: 36px; height: 36px; min-height: 36px; padding: 0; flex: 0 0 36px; color: var(--sl-muted); }
 #sideleaf-dialog .cd-icon-button:hover:not(:disabled) { color: var(--sl-fg); }
 #sideleaf-dialog .cd-icon-button .cd-icon { width: 19px; height: 19px; flex-basis: 19px; }
@@ -75,21 +76,23 @@
 #sideleaf-dialog .cd-tab[aria-pressed="true"] .cd-icon { color: var(--sl-ink); }
 #sideleaf-dialog .cd-count { min-width: 22px; padding: 1px 7px; border-radius: 999px; font-size: .85em; font-variant-numeric: tabular-nums; background: var(--sl-hover); }
 #sideleaf-dialog .cd-toolbar { display: flex; gap: 8px; align-items: center; }
-#sideleaf-dialog .cd-search-field { flex: 1; min-width: 0; position: relative; display: flex; align-items: center; margin: 0; }
-#sideleaf-dialog .cd-search-field > .cd-icon { position: absolute; left: 12px; color: var(--sl-muted); }
-#sideleaf-dialog .cd-search, #sideleaf-dialog .cd-input {
-    width: 100%; min-height: 40px; margin: 0; padding: 8px 12px; border-radius: 10px;
+/* The search box frame lives on the label, so themes that force input padding cannot push text under the icon. */
+#sideleaf-dialog .cd-search-field { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; margin: 0; padding: 0 12px; min-height: 40px; border-radius: 10px; border: 1px solid var(--sl-line); background: var(--sl-soft); cursor: text; }
+#sideleaf-dialog .cd-search-field > .cd-icon { color: var(--sl-muted); }
+#sideleaf-dialog .cd-search-field:focus-within { border-color: color-mix(in srgb, var(--sl-accent) 70%, transparent); background: var(--sl-hover); }
+#sideleaf-dialog .cd-search { flex: 1; min-width: 0; width: 100%; min-height: 38px; margin: 0; padding: 0 !important; border: 0 !important; border-radius: 0; background: transparent !important; color: inherit; font: inherit; font-size: .92em; outline: none; }
+#sideleaf-dialog .cd-input {
+    width: 100%; min-height: 40px; margin: 0; padding: 8px 12px !important; border-radius: 10px;
     border: 1px solid var(--sl-line); background: var(--sl-soft); color: inherit; font: inherit; font-size: .92em; box-shadow: none; outline: none;
 }
-#sideleaf-dialog .cd-search { padding-left: 38px; }
-#sideleaf-dialog .cd-search:focus, #sideleaf-dialog .cd-input:focus, #sideleaf-dialog .cd-editor:focus { border-color: color-mix(in srgb, var(--sl-accent) 70%, transparent); background: var(--sl-hover); }
+#sideleaf-dialog .cd-input:focus, #sideleaf-dialog .cd-editor:focus { border-color: color-mix(in srgb, var(--sl-accent) 70%, transparent); background: var(--sl-hover); }
 #sideleaf-dialog .cd-search::placeholder, #sideleaf-dialog .cd-input::placeholder { color: var(--sl-muted); opacity: .8; }
 #sideleaf-dialog .cd-select { position: relative; display: inline-flex; align-items: center; gap: 6px; margin: 0; min-height: 40px; padding: 0 10px; border-radius: 10px; border: 1px solid var(--sl-line); background: var(--sl-soft); color: inherit; cursor: pointer; flex-shrink: 0; }
 #sideleaf-dialog .cd-select:hover { background: var(--sl-hover); }
 #sideleaf-dialog .cd-select:focus-within { border-color: color-mix(in srgb, var(--sl-accent) 70%, transparent); }
 #sideleaf-dialog .cd-select > .cd-icon:first-child { color: var(--sl-muted); }
 #sideleaf-dialog .cd-select > .cd-icon:last-child { width: 14px; height: 14px; flex-basis: 14px; color: var(--sl-muted); }
-#sideleaf-dialog .cd-select select { appearance: none; -webkit-appearance: none; border: 0; outline: none; margin: 0; padding: 0; min-height: 0; width: auto; background: transparent; color: inherit; font: inherit; font-size: .88em; cursor: pointer; box-shadow: none; }
+#sideleaf-dialog .cd-select select { appearance: none; -webkit-appearance: none; border: 0 !important; outline: none; margin: 0; padding: 0 !important; min-height: 0; width: auto; background: transparent !important; color: inherit; font: inherit; font-size: .88em; cursor: pointer; box-shadow: none; }
 #sideleaf-dialog .cd-select option { color: CanvasText; background: Canvas; }
 #sideleaf-dialog .cd-bulkbar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 #sideleaf-dialog .cd-bulkbar .cd-labelled { min-height: 34px; padding: 6px 11px; }
@@ -153,7 +156,7 @@
 #sideleaf-dialog .cd-field-grow { flex: 1; min-height: 0; }
 #sideleaf-dialog .cd-field-label { font-size: .82em; font-weight: 600; color: var(--sl-muted); }
 #sideleaf-dialog .cd-editor {
-    flex: 1; min-height: 160px; width: 100%; margin: 0; resize: none; padding: 16px; border-radius: 12px;
+    flex: 1; min-height: 160px; width: 100%; margin: 0; resize: none; padding: 16px !important; border-radius: 12px;
     border: 1px solid var(--sl-line); background: var(--sl-soft); color: inherit; box-shadow: none; outline: none;
     font-family: var(--sl-chat-font, inherit); font-size: var(--sl-chat-size, 1em); line-height: var(--sl-chat-line, 1.8);
 }
