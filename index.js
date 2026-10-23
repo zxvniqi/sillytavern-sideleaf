@@ -333,7 +333,7 @@ function row(item, full = false) {
         }
         if (!full) tools.append(iconButton('expand','크게 읽기', () => showReader(item)));
         tools.append(iconButton('copy','복사', () => copyText(current.text)));
-        if (editMode) tools.append(iconButton('title','제목 수정', () => editItem(item, current.text, true)), iconButton('text','본문 수정', () => editItem(item, current.text)));
+        tools.append(iconButton('title','제목 수정', () => editItem(item, current.text, true)), iconButton('text','본문 수정', () => editItem(item, current.text)));
         details.insertBefore(tools, body);
     }
     if (full) { summary.hidden = true; card.append(details); }

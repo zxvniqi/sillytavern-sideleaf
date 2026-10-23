@@ -1,1 +1,2 @@
-{"name":"sillytavern-sideleaf","private":true,"type":"module","scripts":{"test":"node --test model.test.js"}}
+{"name":"sillytavern-sideleaf","private":true,"type":"module","scripts":{"test":"node --test"}}
+
