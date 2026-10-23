@@ -14,7 +14,7 @@ export class ArchiveFiles {
     constructor({request = (...args)=>fetch(...args), headers, uuid}) {
         this.request=request; this.headers=headers; this.uuid=uuid; this.clear();
     }
-    clear() { this.payloadRefs=new WeakMap(); this.editRefs=new Map(); }
+    clear() { this.generation=(this.generation||0)+1; this.payloadRefs=new WeakMap(); this.editRefs=new Map(); }
     async read(name) {
         const response=await this.request(pathFor(name),{headers:this.headers(),cache:'no-store',signal:AbortSignal.timeout(30000)});
         if (!response.ok) throw new Error('별지 파일을 읽지 못했습니다. 연결 또는 서버 백업을 확인해주세요.');
@@ -31,6 +31,7 @@ export class ArchiveFiles {
         return name;
     }
     async load(metadata) {
+        const generation=this.generation;
         const pointer=metadata?.[KEY];
         if(pointer?.version!==2) return readDrawer(metadata);
         pathFor(pointer.file);
@@ -47,8 +48,8 @@ export class ArchiveFiles {
             const payload=packs.get(entry.payload.file)[entry.payload.slot];
             if(payload?.kind!=='message'||!payload.message||typeof payload.message!=='object')throw new Error('별지 원문을 찾지 못했습니다.');
             const {kind,...body}=payload, item={...entry.data,...body};
-            this.payloadRefs.set(item.message,{ref:entry.payload,screenText:item.screenText,screenTextComplete:item.screenTextComplete});
-            if(entry.edit){const edit=packs.get(entry.edit.file)[entry.edit.slot];if(edit?.kind!=='edit'||typeof edit.text!=='string')throw new Error('별지 수정문을 찾지 못했습니다.');item.editedText=edit.text;this.editRefs.set(item.id,{text:edit.text,ref:entry.edit});}
+            if(generation===this.generation) this.payloadRefs.set(item.message,{ref:entry.payload,screenText:item.screenText,screenTextComplete:item.screenTextComplete});
+            if(entry.edit){const edit=packs.get(entry.edit.file)[entry.edit.slot];if(edit?.kind!=='edit'||typeof edit.text!=='string')throw new Error('별지 수정문을 찾지 못했습니다.');item.editedText=edit.text;if(generation===this.generation)this.editRefs.set(item.id,{text:edit.text,ref:entry.edit});}
             return item;
         });
         if(new Set(items.map(x=>x.id)).size!==items.length)throw new Error('별지 목록에 중복 연결이 있습니다.');

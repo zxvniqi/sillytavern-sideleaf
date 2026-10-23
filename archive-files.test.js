@@ -79,3 +79,12 @@ test('readback corruption is detected before returning a pointer',async()=>{
     const store=new ArchiveFiles({uuid:()=> '1',headers:()=>({}),request:async(url)=>Response.json(url==='/api/files/upload'?{}:{changed:true})});
     await assert.rejects(store.save(drawer()),/검증하지 못/);
 });
+
+test('closing during load cannot refill the released edit cache',async()=>{
+    const f=fixture(),store=f.make(),pointer=await store.save(drawer());
+    store.clear();
+    const pending=store.load({[KEY]:pointer});
+    store.clear();
+    assert.equal((await pending).items.length,1);
+    assert.equal(store.editRefs.size,0);
+});
