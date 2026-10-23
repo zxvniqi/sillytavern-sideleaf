@@ -5,7 +5,7 @@
 
 ## 설치
 
-SillyTavern **확장 → Install extension**에 아래 주소를 넣고 새로고침하세요. (SillyTavern 1.19.0 이상)
+SillyTavern **확장 → Install extension**에 아래 주소를 넣고 새로고침하세요. (1.19.0에서 확인 · 이전 버전은 미확인)
 
 ```
 https://github.com/zxvniqi/sillytavern-sideleaf

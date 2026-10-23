@@ -1,11 +1,20 @@
 import { KEY, PAGE_SIZE, readDrawer, itemTitle, archivePlan, restorePlan, chatIdentity, preview, readingVersions, editPlan, orderedItems, reorderPlan } from './model.js';
-import { isGenerating } from '../../../../script.js';
 import { icon } from './icons.js';
 import { installQrSource } from './qr-source.js';
 import { readableText, fullDetailsText } from './reading-text.js';
 import { ArchiveFiles, portableChat } from './archive-files.js';
 
 const context = () => SillyTavern.getContext();
+// Older SillyTavern builds may not export isGenerating; a failed static import would stop the whole
+// extension from loading, so read it dynamically and fall back to the visible Stop button.
+const core = await import('../../../../script.js').catch(() => ({}));
+const isGenerating = typeof core.isGenerating === 'function' ? core.isGenerating : () => {
+    const stop = document.getElementById('mes_stop');
+    return Boolean(stop && getComputedStyle(stop).display !== 'none');
+};
+// Everything 별지 needs from the host. If any is missing, it stays read-only and touches no data.
+const REQUIRED = ['saveChat', 'getRequestHeaders', 'printMessages', 'eventSource', 'eventTypes'];
+const missingFeatures = () => REQUIRED.filter(name => !context()?.[name]);
 let dialog;
 let busy = false;
 let view = 'archive';
@@ -319,6 +328,11 @@ function onCancel(event) {
 
 function open() {
     if (dialog?.open) { dialog.focus(); return; }
+    const missing = missingFeatures();
+    if (missing.length) {
+        globalThis.toastr?.warning(`이 SillyTavern 버전에는 별지에 필요한 기능(${missing.join(', ')})이 없어 열지 않았습니다. 데이터는 변경하지 않았습니다.`, '별지');
+        return;
+    }
     openedChat = chatIdentity(context());
     view = 'archive'; page = 0; selected.clear(); search = ''; editMode = false;
     sortMode = context().accountStorage?.getItem('sideleaf.sort') || sortMode;
@@ -907,6 +921,8 @@ function initialize() {
     entry.id = 'sideleaf-wand';
     entry.prepend(icon('star'));
     container.append(entry); menu.append(container);
+    // Unsupported host: keep only the menu entry (which explains why) and hook into nothing else.
+    if (missingFeatures().length) { console.warn('[Sideleaf] Missing host features:', missingFeatures()); return; }
     const ctx = context();
     installQrSource(context);
     const on = (type, handler) => { if (ctx.eventTypes[type]) ctx.eventSource.on(ctx.eventTypes[type], handler); };
@@ -935,5 +951,9 @@ function initialize() {
 }
 
 const boot = context();
-if (boot.eventTypes.APP_READY) boot.eventSource.on(boot.eventTypes.APP_READY, initialize);
+if (boot.eventTypes?.APP_READY && boot.eventSource) {
+    boot.eventSource.on(boot.eventTypes.APP_READY, initialize);
+    // Builds that do not replay APP_READY to late listeners: initialize once the UI is there anyway.
+    setTimeout(() => { if (!document.getElementById('sideleaf-wand')) initialize(); }, 5000);
+}
 else initialize();
