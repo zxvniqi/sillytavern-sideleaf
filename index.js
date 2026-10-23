@@ -3,6 +3,7 @@ import { isGenerating } from '../../../../script.js';
 import { icon } from './icons.js';
 import { installQrSource } from './qr-source.js';
 import { readableText, fullDetailsText } from './reading-text.js';
+import { ArchiveFiles, portableChat } from './archive-files.js';
 
 const context = () => SillyTavern.getContext();
 let dialog;
@@ -27,6 +28,41 @@ let readerReturn = null;
 let readerRevision = null;
 const id = () => context().uuidv4?.() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
 
+const files = new ArchiveFiles({headers:()=>context().getRequestHeaders(), uuid:id});
+let loaded = null, loading = null, loadError = null, loadEpoch = 0;
+const storageKey = ctx => JSON.stringify([chatIdentity(ctx), ctx.chatMetadata?.[KEY]]);
+function clearArchiveCache() {
+    loadEpoch++; loaded = null; loading = null; loadError = null; files.clear();
+}
+function currentDrawer(ctx = context()) {
+    if (ctx.chatMetadata?.[KEY]?.version !== 2) return readDrawer(ctx.chatMetadata);
+    if (loaded?.key === storageKey(ctx)) return loaded.drawer;
+    throw new Error('보관함을 불러오는 중입니다.');
+}
+async function ensureArchive(ctx = context()) {
+    if (ctx.chatMetadata?.[KEY]?.version !== 2) return readDrawer(ctx.chatMetadata);
+    const key = storageKey(ctx);
+    if (loaded?.key === key) return loaded.drawer;
+    if (loading?.key === key) return loading.promise;
+    const epoch = ++loadEpoch;
+    loadError = null;
+    const promise = files.load(ctx.chatMetadata).then(drawer => {
+        if (epoch !== loadEpoch || key !== storageKey(context())) throw new Error('채팅이 바뀌었습니다. 별지를 다시 열어주세요.');
+        loaded = {key, drawer}; return drawer;
+    }).catch(error => { if (epoch === loadEpoch) loadError = error; throw error; })
+      .finally(() => { if (epoch === loadEpoch) loading = null; });
+    loading = {key, promise}; return promise;
+}
+function downloadChat(data, name) {
+    const url = URL.createObjectURL(new Blob([data.map(item=>JSON.stringify(item)).join('\n')], {type:'application/jsonl'}));
+    const link = document.createElement('a'); link.href=url; link.download=name; link.click();
+    setTimeout(()=>URL.revokeObjectURL(url),1000);
+}
+function exportArchive() {
+    try { downloadChat(portableChat(assertReady(), currentDrawer()), 'sideleaf-chat-backup.jsonl'); }
+    catch(error) { note(error.message,true); }
+}
+
 function el(tag, className, text) {
     const node = document.createElement(tag);
     if (className) node.className = className;
@@ -47,7 +83,7 @@ function setSort(value) {
     sortMode = value; context().accountStorage?.setItem('sideleaf.sort', value); page = 0; render();
 }
 function archiveItems() {
-    return orderedItems(readDrawer(context().chatMetadata), sortMode).map(item => ({...item,key:item.id,index:item.originalIndex}));
+    return orderedItems(currentDrawer(), sortMode).map(item => ({...item,key:item.id,index:item.originalIndex}));
 }
 function matchesSearch(item) {
     const query = search.trim().toLocaleLowerCase();
@@ -96,13 +132,18 @@ async function commit(kind, edit = null) {
     if (busy || pending) return;
     try {
         const ctx = assertReady();
-        if (!edit && !selected.size) return;
+        if (kind !== 'migrate' && !edit && !selected.size) return;
+        busy = true;
+        const originalPointer = ctx.chatMetadata[KEY];
+        const chatBefore = JSON.stringify(ctx.chat);
+        const drawer = await ensureArchive(ctx);
+        if (assertReady().chatMetadata !== ctx.chatMetadata) throw new Error('채팅이 바뀌었습니다.');
         if (view === 'select' && (snapshot.length !== ctx.chat.length || snapshot.some((message, i) => message !== ctx.chat[i]))) {
             selected.clear(); render(); throw new Error('대화가 변경되어 선택을 해제했습니다. 다시 골라주세요.');
         }
-        const plan = kind === 'order' ? reorderPlan(ctx.chat, readDrawer(ctx.chatMetadata), edit.order, id) : edit ? editPlan(ctx.chat, readDrawer(ctx.chatMetadata), edit.id, edit.title, edit.text, id) : kind === 'archive'
-            ? archivePlan(ctx.chat, readDrawer(ctx.chatMetadata), [...selected], id)
-            : restorePlan(ctx.chat, readDrawer(ctx.chatMetadata), [...selected], id);
+        const plan = kind === 'migrate' ? {chat:ctx.chat.slice(), drawer:{...drawer,revision:id()}} : kind === 'order' ? reorderPlan(ctx.chat, drawer, edit.order, id) : edit ? editPlan(ctx.chat, drawer, edit.id, edit.title, edit.text, id) : kind === 'archive'
+            ? archivePlan(ctx.chat, drawer, [...selected], id)
+            : restorePlan(ctx.chat, drawer, [...selected], id);
         if (kind === 'archive') for (const item of plan.affected) {
             const body = document.querySelector(`#chat .mes[mesid="${item.originalIndex}"] .mes_text`);
             const text = body ? readableText(body) : '';
@@ -112,11 +153,16 @@ async function commit(kind, edit = null) {
                 item.screenTextComplete = true;
             }
         }
-        busy = true;
+        render(); note('별지 파일 저장 확인 중…');
+        const pointer = await files.save(plan.drawer);
+        if (assertReady().chatMetadata !== ctx.chatMetadata || ctx.chatMetadata[KEY] !== originalPointer || JSON.stringify(ctx.chat) !== chatBefore) {
+            throw new Error('저장 중 대화가 변경되었습니다. 채팅을 덮어쓰지 않았습니다. 다시 시도해주세요.');
+        }
         pending = { ctx, kind, revision: plan.drawer.revision, identity: openedChat,
             recovery: [{ user_name: ctx.name1, character_name: ctx.name2,
                 chat_metadata: structuredClone({ ...ctx.chatMetadata, [KEY]: plan.drawer }) }, ...structuredClone(plan.chat)] };
-        ctx.chatMetadata[KEY] = plan.drawer;
+        ctx.chatMetadata[KEY] = pointer;
+        loaded = {key:storageKey(ctx),drawer:plan.drawer};
         ctx.chatMetadata.tainted = true;
         ctx.chat.length = 0;
         for (const message of plan.chat) ctx.chat.push(message);
@@ -128,6 +174,7 @@ async function commit(kind, edit = null) {
         busy = false;
         if (pending && !dialog) open();
         render(); note(error.message, true);
+        if (!pending && !dialog) clearArchiveCache();
         console.error('[Sideleaf]', error);
     }
 }
@@ -154,7 +201,8 @@ async function finishSave() {
         if (readerReturn) { const target = archiveItems().find(x=>x.key===readerReturn); readerReturn = null; if (target) showReader(target); else render(); }
         else render();
     }
-    note(operation.kind === 'archive' ? '선택한 메시지를 별지에 보관했습니다.' : ['edit','order'].includes(operation.kind) ? '변경 사항을 저장했습니다.' : '선택한 메시지를 채팅 끝에 복원했습니다.');
+    if (!dialog) clearArchiveCache();
+    note(operation.kind === 'migrate' ? '분리 저장으로 전환했습니다. 다른 서버로 옮길 때 통합 백업을 사용해주세요.' : operation.kind === 'archive' ? '선택한 메시지를 별지에 보관했습니다.' : ['edit','order'].includes(operation.kind) ? '변경 사항을 저장했습니다.' : '선택한 메시지를 채팅 끝에 복원했습니다.');
 }
 
 function close() {
@@ -162,6 +210,7 @@ function close() {
     if (editing) { note('편집을 저장하거나 취소한 뒤 닫아주세요.', true); return; }
     clearTimeout(searchTimer);
     dialog?.close(); dialog?.remove(); dialog = null;
+    clearArchiveCache();
     snapshot = []; selected.clear(); search = '';
     reader = false; expanded.clear(); composing = false;
     editMode = false; readerKey = null; readerItems = []; readerReturn = null; readerRevision = null;
@@ -169,9 +218,7 @@ function close() {
 
 function downloadRecovery() {
     if (!pending) return;
-    const url = URL.createObjectURL(new Blob([pending.recovery.map(item => JSON.stringify(item)).join('\n')], { type: 'application/jsonl' }));
-    const link = document.createElement('a'); link.href = url; link.download = 'sideleaf-recovery.jsonl'; link.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    downloadChat(pending.recovery, 'sideleaf-recovery.jsonl');
 }
 
 function open() {
@@ -195,7 +242,14 @@ function render() {
     const ctx = context();
     const generating = isGenerating();
     let drawer;
-    try { drawer = readDrawer(ctx.chatMetadata); } catch (error) { dialog.replaceChildren(el('p', '', error.message), button('닫기', close)); return; }
+    try { drawer = currentDrawer(ctx); } catch (error) {
+        if (ctx.chatMetadata?.[KEY]?.version === 2) {
+            dialog.replaceChildren(el('p', 'cd-status', loadError?.message || '보관함을 불러오는 중…'),
+                ...(loadError ? [button('다시 불러오기',()=>{loadError=null;render();})] : []), button('닫기',close));
+            if (!loading && !loadError) ensureArchive(ctx).then(()=>render(),()=>render());
+        } else dialog.replaceChildren(el('p','',error.message),button('닫기',close));
+        return;
+    }
     const heading = el('header', 'cd-header');
     const title = el('div', 'cd-title');
     const name = el('h2', 'cd-brand', '별지'); name.prepend(icon('leaf'));
@@ -230,12 +284,18 @@ function render() {
     input.addEventListener('compositionend', () => { composing = false; updateSearch(); });
     toolbar.append(input);
     if (view === 'archive' && editMode) {
+        const backup = iconButton('download','채팅·별지 통합 백업',exportArchive);
+        backup.disabled = busy || Boolean(pending); toolbar.append(backup);
+        if (ctx.chatMetadata?.[KEY]?.version !== 2 && drawer.items.length) {
+            const migrate = button('분리 저장으로 전환',()=>commit('migrate'));
+            migrate.disabled = busy || Boolean(pending) || generating; toolbar.append(migrate);
+        }
         const sort = el('select','cd-sort'); sort.setAttribute('aria-label','메시지 정렬');
         for (const [value,label] of [['desc','최신순 ↓'],['asc','오래된순 ↑'],['manual','직접 정한 순서']]) { const option=el('option','',label); option.value=value; sort.append(option); }
         sort.value=sortMode; sort.disabled=busy || Boolean(pending); sort.addEventListener('change',()=>setSort(sort.value)); toolbar.append(sort);
     }
     const hint = el('p', 'cd-hint', view === 'archive'
-        ? '이 채팅에서 보관한 메시지만 표시합니다. 복원하면 채팅 끝에 추가됩니다.'
+        ? (ctx.chatMetadata?.[KEY]?.version === 2 ? '분리 저장 중 · 다른 서버로 옮길 때 채팅·별지 통합 백업을 사용하세요. 일반 채팅 내보내기에는 별지 본문이 포함되지 않습니다.' : '채팅 파일 안에 보관 중 · 분리 저장으로 전환하면 별지를 열 때 본문을 불러옵니다. 보관·수정 시에도 자동 전환됩니다.')
         : '원하는 메시지만 골라 보관하세요. 보관한 메시지는 대화 화면과 이후 AI 대화 기록에서 빠집니다.');
     const list = el('div', 'cd-list'); list.setAttribute('aria-label', view === 'archive' ? '보관 메시지' : '선택할 메시지');
     if (view === 'select' && snapshot.length && (snapshot.length !== ctx.chat.length || snapshot.some((message, i) => message !== ctx.chat[i]))) selected.clear();
@@ -378,7 +438,7 @@ function editItem(item, text, titleOnly = false) {
 
 function showReader(item) {
     clearTimeout(searchTimer);
-    const revision = readDrawer(context().chatMetadata).revision;
+    const revision = currentDrawer().revision;
     if (!reader || readerRevision !== revision) {
         readerItems = archiveItems().filter(matchesSearch);
         if (!readerItems.some(x=>x.key===item.key)) readerItems=archiveItems();
@@ -505,6 +565,7 @@ function initialize() {
     on('GENERATION_ENDED', updateGeneration);
     on('GENERATION_STOPPED', updateGeneration);
     on('CHAT_CHANGED', () => {
+        if (!pending && !busy && (!dialog || openedChat !== chatIdentity(context()))) clearArchiveCache();
         if (openedChat !== chatIdentity(context()) && dialog) {
             if (pending) { note('채팅이 변경되었습니다. 저장 중이던 원래 채팅을 확인해주세요.', true); return; }
             close();

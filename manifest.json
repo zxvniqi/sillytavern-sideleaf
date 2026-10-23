@@ -1,15 +1,12 @@
 {
-  "display_name": "별지 · Sideleaf",
-  "loading_order": 100,
-  "requires": [],
-  "optional": [],
-  "js": "index.js",
-  "css": "style.css",
-  "author": "Sideleaf contributors",
-  "version": "0.3.2",
-  "homePage": "https://github.com/zxvniqi/sillytavern-sideleaf",
-  "minimum_client_version": "1.19.0"
+    "display_name": "별지 · Sideleaf",
+    "loading_order": 100,
+    "requires": [],
+    "optional": [],
+    "js": "index.js",
+    "css": "style.css",
+    "author": "Sideleaf contributors",
+    "version": "0.4.0",
+    "homePage": "https://github.com/zxvniqi/sillytavern-sideleaf",
+    "minimum_client_version": "1.19.0"
 }
-
-
-
