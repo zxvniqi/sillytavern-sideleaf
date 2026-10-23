@@ -80,6 +80,12 @@ test('readback corruption is detected before returning a pointer',async()=>{
     await assert.rejects(store.save(drawer()),/검증하지 못/);
 });
 
+test('damaged inline items are refused instead of restoring an empty message',()=>{
+    for (const broken of [{id:'x'},{message:{mes:'no id'}},null]) {
+        assert.throws(()=>readDrawer({[KEY]:{version:1,revision:'r',items:[broken]}}),/손상/);
+    }
+});
+
 test('closing during load cannot refill the released edit cache',async()=>{
     const f=fixture(),store=f.make(),pointer=await store.save(drawer());
     store.clear();

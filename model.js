@@ -5,7 +5,15 @@ export function readDrawer(metadata) {
     const data = metadata?.[KEY];
     if (data === undefined) return { version: 1, revision: '', items: [] };
     if (!data || data.version !== 1 || !Array.isArray(data.items)) throw new Error('지원하지 않는 별지 데이터입니다. 원본은 변경하지 않았습니다.');
+    // Imported or hand-edited files must not push an empty message back into the chat on restore.
+    if (data.items.some(item => typeof item?.id !== 'string' || !item.message || typeof item.message !== 'object')) {
+        throw new Error('별지 항목 일부가 손상되어 열지 않았습니다. 원본은 변경하지 않았습니다.');
+    }
     return data;
+}
+
+export function itemTitle(item, text, limit = 80) {
+    return item.title || preview({ mes: text }, limit);
 }
 
 export function archivePlan(chat, drawer, indices, idFactory, now = Date.now()) {
@@ -33,13 +41,23 @@ export function sourceTitle(source) {
 }
 
 export function orderedItems(drawer, mode = 'desc') {
-    const chronological = drawer.items.map((item, index) => ({item,index})).sort((a,b)=>(a.item.archivedAt-b.item.archivedAt)||a.index-b.index).map(x=>x.item);
+    // Stable chronological order: archive time first, then original array position.
+    const chronological = drawer.items
+        .map((item, index) => ({ item, index }))
+        .sort((a, b) => (a.item.archivedAt - b.item.archivedAt) || a.index - b.index)
+        .map(entry => entry.item);
     if (mode === 'asc') return chronological;
     if (mode !== 'manual' || !Array.isArray(drawer.order)) return chronological.reverse();
-    const byId = new Map(drawer.items.map(item=>[item.id,item]));
+    // Manual order: unknown/duplicate ids are skipped; items added later come first, newest on top.
+    const byId = new Map(drawer.items.map(item => [item.id, item]));
     const seen = new Set();
-    const saved = drawer.order.filter(key=>byId.has(key) && !seen.has(key) && seen.add(key)).map(key=>byId.get(key));
-    return [...chronological.reverse().filter(item=>!seen.has(item.id)), ...saved];
+    const saved = [];
+    for (const key of drawer.order) {
+        if (!byId.has(key) || seen.has(key)) continue;
+        seen.add(key);
+        saved.push(byId.get(key));
+    }
+    return [...chronological.reverse().filter(item => !seen.has(item.id)), ...saved];
 }
 
 export function reorderPlan(chat, drawer, order, idFactory) {
@@ -90,6 +108,12 @@ export function readingVersions(item) {
 
 export function editPlan(chat, drawer, itemId, title, editedText, idFactory) {
     if (!drawer.items.some(item => item.id === itemId)) throw new Error('보관 항목이 변경되었습니다. 다시 열어주세요.');
-    return { chat: chat.slice(), drawer: { ...drawer, revision: idFactory(), items: drawer.items.map(item => item.id === itemId
-        ? { ...item, title: String(title).trim().slice(0, 160), ...(editedText === undefined ? {} : { editedText: String(editedText), editedAt: Date.now() }) } : item) } };
+    const update = item => {
+        const next = { ...item, title: String(title).trim().slice(0, 160) };
+        // Title-only edits leave any existing edited body untouched.
+        if (editedText !== undefined) Object.assign(next, { editedText: String(editedText), editedAt: Date.now() });
+        return next;
+    };
+    const items = drawer.items.map(item => item.id === itemId ? update(item) : item);
+    return { chat: chat.slice(), drawer: { ...drawer, revision: idFactory(), items } };
 }

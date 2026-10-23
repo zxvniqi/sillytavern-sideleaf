@@ -1,29 +1,37 @@
+// One consistent set: 24px grid, round 1.8px strokes. Dots use zero-length
+// segments so they inherit the stroke colour of the current theme.
 const paths = {
-    download: ['M12 3v12m-5-5 5 5 5-5','M4 16v5h16v-5'],
-    leaf: ['M5 3h9l5 5v12H5z','M14 3v5h5','M8 17c0-5 3-6 7-6 0 4-2 6-7 6Zm0 0 5-4','m3 5-1-2m1-1 1-2'],
-    copy: ['M8 8h11v12H8z','M15 8V4H4v12h4'],
-    edit: ['m4 16-1 5 5-1L20 8l-4-4Z','m13 7 4 4'],
-    title: ['M3 5h18M12 5v15M8 20h8'],
-    text: ['M4 5h16M4 10h16M4 15h11M4 20h8'],
-    language: ['M3 5h11M8 3v2M5 7c1 4 4 7 8 8M12 5c-1 5-4 9-9 11','m14 20 4-10 4 10m-6-4h4'],
-    expand: ['M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5'],
-    list: ['M8 5h13M8 12h13M8 19h13M3 5h1M3 12h1M3 19h1'],
-    left: ['m15 4-8 8 8 8'], right: ['m9 4 8 8-8 8'],
-    close: ['m5 5 14 14M19 5 5 19'],
-    check: ['m5 12 4 4L19 6'],
-    all: ['M8 3h13v13M3 8h13v13H3z','m6 14 3 3 5-6'],
-    clear: ['M4 4h16v16H4z','m8 8 8 8m0-8-8 8'],
-    move: ['m8 6 4-4 4 4M12 2v20m-4-4 4 4 4-4'],
-    grip: ['M8 5h1m6 0h1M8 12h1m6 0h1M8 19h1m6 0h1'],
-    up: ['m5 15 7-7 7 7'], down: ['m5 9 7 7 7-7'],
+    // Brand mark: a separate sheet (별지) tucked behind a written page.
+    leaf: ['M9 6V4.2a1.2 1.2 0 0 1 1.2-1.2h6.3L20.5 7v10.3a1.2 1.2 0 0 1-1.2 1.2H17', 'M4.5 7.2A1.2 1.2 0 0 1 5.7 6h6.8l4.5 4.5v9.3a1.2 1.2 0 0 1-1.2 1.2H5.7a1.2 1.2 0 0 1-1.2-1.2Z', 'M12.5 6v4.5H17', 'M7.5 14.5h6M7.5 17.5h4'],
+    search: ['M10.8 18a7.2 7.2 0 1 0 0-14.4 7.2 7.2 0 0 0 0 14.4Z', 'm20.4 20.4-4.5-4.5'],
+    close: ['M6.5 6.5l11 11M17.5 6.5l-11 11'],
+    edit: ['M4 20h4.2L19.1 9.1a2.9 2.9 0 0 0-4.2-4.2L4 15.8V20Z', 'm13.4 6.4 4.2 4.2'],
+    pencil: ['M4 6h10M4 11h7M4 16h4', 'M12.5 20.5v-2.7l6-6a1.9 1.9 0 0 1 2.7 2.7l-6 6h-2.7Z'],
+    check: ['m5 12.6 4.4 4.4L19 7.4'],
+    download: ['M12 4v11', 'm7.4 10.6 4.6 4.6 4.6-4.6', 'M5 19.5h14'],
+    copy: ['M9.5 8.5h9a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1v-10a1 1 0 0 1 1-1Z', 'M5.5 15.5h-.8A1.2 1.2 0 0 1 3.5 14.3V4.7a1.2 1.2 0 0 1 1.2-1.2h9.6a1.2 1.2 0 0 1 1.2 1.2v.8'],
+    title: ['M5 7.5V5h14v2.5', 'M12 5v14', 'M9 19h6'],
+    book: ['M3 5.6c3-1.3 6.2-1.1 9 1 2.8-2.1 6-2.3 9-1v13c-3-1.3-6.2-1.1-9 1-2.8-2.1-6-2.3-9-1v-13Z', 'M12 6.6v13'],
+    list: ['M9 6.5h11M9 12h11M9 17.5h11', 'M4.5 6.5h.01M4.5 12h.01M4.5 17.5h.01'],
+    left: ['m14.5 6-6 6 6 6'], right: ['m9.5 6 6 6-6 6'],
+    up: ['m6 14.5 6-6 6 6'], down: ['m6.5 9.5 5.5 5.5 5.5-5.5'],
+    back: ['M19 12H5.5', 'm11 6-6 6 6 6'],
+    all: ['M5 4h14a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1Z', 'm8 12.2 2.9 2.9L16.2 9'],
+    clear: ['M5 4h14a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1Z', 'M8.5 12h7'],
+    restore: ['M9 14.5 4 9.5l5-5', 'M4 9.5h10.2a5.3 5.3 0 0 1 0 10.6H10'],
+    grip: ['M9 6h.01M15 6h.01M9 12h.01M15 12h.01M9 18h.01M15 18h.01'],
+    sort: ['M7 4.5v15', 'm4 16.5 3 3 3-3', 'M13.5 6.5h7M13.5 12h5M13.5 17.5h3'],
+    layers: ['m12 3.5 8.5 4.6-8.5 4.6-8.5-4.6L12 3.5Z', 'm3.5 12.4 8.5 4.6 8.5-4.6', 'm3.5 16.4 8.5 4.6 8.5-4.6'],
+    split: ['M4.5 4.5h7v15h-7z', 'M15 7.5h4.5v12H15', 'M15 4.5h4.5'],
 };
+const heavy = new Set(['grip']);
 export function icon(name) {
-    const svg = document.createElementNS('http://www.w3.org/2000/svg','svg');
-    svg.setAttribute('viewBox','0 0 24 24'); svg.setAttribute('aria-hidden','true'); svg.classList.add('cd-icon');
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('viewBox', '0 0 24 24'); svg.setAttribute('aria-hidden', 'true'); svg.classList.add('cd-icon');
     for (const d of paths[name] || paths.leaf) {
-        const path = document.createElementNS(svg.namespaceURI,'path'); path.setAttribute('d',d);
-        path.setAttribute('fill','none'); path.setAttribute('stroke','currentColor'); path.setAttribute('stroke-width','1.7');
-        path.setAttribute('stroke-linecap','round'); path.setAttribute('stroke-linejoin','round'); svg.append(path);
+        const path = document.createElementNS(svg.namespaceURI, 'path'); path.setAttribute('d', d);
+        path.setAttribute('fill', 'none'); path.setAttribute('stroke', 'currentColor'); path.setAttribute('stroke-width', heavy.has(name) ? '2.6' : '1.8');
+        path.setAttribute('stroke-linecap', 'round'); path.setAttribute('stroke-linejoin', 'round'); svg.append(path);
     }
     return svg;
 }

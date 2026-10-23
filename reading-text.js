@@ -5,7 +5,8 @@ export function readableText(root) {
     const parts = [];
     function visit(node) {
         if (node.nodeType === 3) { parts.push(node.textContent); return; }
-        if (ignored.has(node.nodeName) || node.hidden || node.getAttribute?.('aria-hidden') === 'true') return;
+        // SVG/MathML report lowercase node names, so compare case-insensitively.
+        if (ignored.has(node.nodeName.toUpperCase()) || node.hidden || node.getAttribute?.('aria-hidden') === 'true') return;
         if (node.nodeName === 'BR') { parts.push('\n'); return; }
         const block = blocks.has(node.nodeName);
         if (block) parts.push('\n');
