@@ -125,7 +125,29 @@
     width: 100%; white-space: pre-wrap; overflow-wrap: anywhere;
     font-family: var(--sl-chat-font, inherit); font-size: var(--sl-chat-size, 1em); line-height: var(--sl-chat-line, 1.8); letter-spacing: var(--sl-chat-spacing, normal);
 }
-#sideleaf-dialog .cd-card .cd-text { padding: 14px 16px; border-radius: 10px; background: var(--sl-message-bg, var(--sl-soft)); max-height: 60vh; overflow-y: auto; }
+#sideleaf-dialog .cd-card :is(.cd-text, .cd-rich) { padding: 14px 16px; border-radius: 10px; background: var(--sl-message-bg, var(--sl-soft)); max-height: 60vh; overflow-y: auto; }
+/* Chat-style body. Defaults follow SillyTavern's own message rules; the live theme's values are copied over them on open. */
+#sideleaf-dialog .cd-rich {
+    width: 100%; overflow-wrap: anywhere;
+    font-family: var(--sl-chat-font, inherit); font-size: var(--sl-chat-size, 1em); line-height: var(--sl-chat-line, 1.8); letter-spacing: var(--sl-chat-spacing, normal);
+}
+#sideleaf-dialog .cd-rich > :first-child { margin-top: 0; }
+#sideleaf-dialog .cd-rich > :last-child { margin-bottom: 0; }
+#sideleaf-dialog .cd-rich p { margin: 0 0 .9em; }
+#sideleaf-dialog .cd-rich q { color: var(--SmartThemeQuoteColor, inherit); }
+#sideleaf-dialog .cd-rich :is(em, i) { color: var(--SmartThemeEmColor, inherit); }
+#sideleaf-dialog .cd-rich q :is(em, i) { color: inherit; }
+#sideleaf-dialog .cd-rich u { color: var(--SmartThemeUnderlineColor, inherit); }
+#sideleaf-dialog .cd-rich :is(strong, b, h1, h2, h3) { font-weight: bold; }
+#sideleaf-dialog .cd-rich blockquote { margin: .8em 0; padding-left: 10px; border-left: 3px solid var(--SmartThemeQuoteColor, var(--sl-line)); }
+#sideleaf-dialog .cd-rich :is(ul, ol) { margin: .4em 0 .9em; padding-left: 1.6em; }
+#sideleaf-dialog .cd-rich code { padding: 0 .3em; border-radius: 4px; background: var(--sl-soft); font-family: var(--monoFontFamily, monospace); }
+#sideleaf-dialog .cd-rich pre { overflow-x: auto; white-space: pre-wrap; }
+#sideleaf-dialog .cd-rich pre code { display: block; padding: 1em; }
+#sideleaf-dialog .cd-rich img { max-width: 100%; height: auto; border-radius: 6px; }
+#sideleaf-dialog .cd-rich hr { border: 0; border-top: 1px solid var(--sl-line); margin: 1.2em 0; }
+#sideleaf-dialog .cd-rich details { margin: .4em 0; }
+#sideleaf-dialog .cd-rich summary { cursor: pointer; font-weight: bold; }
 #sideleaf-dialog .cd-more { border-color: var(--sl-line); }
 #sideleaf-dialog .cd-grip { cursor: grab; touch-action: none; }
 #sideleaf-dialog .cd-dragging { opacity: .45; }
@@ -196,7 +218,7 @@
     #sideleaf-dialog .cd-sort select { max-width: 6.5em; }
     #sideleaf-dialog .cd-card-head { padding: 12px; gap: 10px; }
     #sideleaf-dialog .cd-card-body { padding: 0 12px 12px; }
-    #sideleaf-dialog .cd-card .cd-text { padding: 12px; max-height: none; }
+    #sideleaf-dialog .cd-card :is(.cd-text, .cd-rich) { padding: 12px; max-height: none; }
     #sideleaf-dialog .cd-tools { flex-wrap: nowrap; gap: 2px; }
     #sideleaf-dialog .cd-tools .cd-version { flex: 0 1 auto; min-width: 0; }
     #sideleaf-dialog .cd-tools .cd-version select { min-width: 0; width: 100%; text-overflow: ellipsis; }

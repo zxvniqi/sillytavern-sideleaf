@@ -117,7 +117,8 @@ function statusLine(text = '') {
     const node = el('p', 'cd-status', text); node.setAttribute('role', 'status'); return node;
 }
 function versionsOf(item) {
-    return readingVersions(item).map(version => ({...version, text:fullDetailsText(version.text)}));
+    // `text` is plain (search, titles, copy, editing); `raw` keeps the markup for chat-style rendering.
+    return readingVersions(item).map(version => ({...version, raw:version.text, text:fullDetailsText(version.text)}));
 }
 function chosenVersion(item, versions) {
     return versions.find(v => v.key === versionChoice.get(item.key)) || versions[0];
@@ -263,6 +264,7 @@ function close(discardEdit = false) {
     if (editing && !discardEdit) { note('편집을 저장하거나 취소한 뒤 닫아주세요.', true); return; }
     clearTimeout(searchTimer);
     dialog?.close(); dialog?.remove(); dialog = null;
+    document.getElementById('sideleaf-chat-style')?.remove();
     clearArchiveCache();
     snapshot = []; selected.clear(); search = ''; editing = null; selectionUi = null;
     reader = false; expanded.clear(); composing = false; versionChoice.clear();
@@ -293,6 +295,7 @@ function open() {
     dialog.addEventListener('cancel', onCancel);
     document.body.append(dialog);
     applyChatAppearance();
+    syncChatStyles();
     render(); dialog.showModal();
 }
 
@@ -462,6 +465,60 @@ function updateSelection() {
     if (selectionUi.none) selectionUi.none.disabled = !selected.size || locked;
 }
 
+// Archived bodies are formatted like the chat (markdown, quotes, regex display scripts),
+// then everything that could run code, embed frames, submit forms or restyle the page is dropped.
+const BLOCKED_TAGS = ['script', 'style', 'link', 'meta', 'base', 'iframe', 'frame', 'frameset', 'object', 'embed', 'form', 'input', 'button', 'textarea', 'select', 'option', 'template', 'noscript', 'audio', 'video', 'source', 'track', 'canvas'];
+function contentBlock(item, version) {
+    const ctx = context(), purify = globalThis.SillyTavern?.libs?.DOMPurify;
+    if (typeof ctx.messageFormatting !== 'function' || typeof purify?.sanitize !== 'function') return textBlock(version.text);
+    let fragment;
+    try {
+        const message = item.message;
+        const html = ctx.messageFormatting(version.raw, message.name ?? '', Boolean(message.is_system), Boolean(message.is_user), undefined);
+        fragment = purify.sanitize(html, { RETURN_DOM_FRAGMENT: true, FORBID_TAGS: BLOCKED_TAGS, FORBID_ATTR: ['id', 'name', 'srcdoc', 'formaction'] });
+    } catch (error) {
+        console.warn('[Sideleaf] Falling back to plain text', error);
+        return textBlock(version.text);
+    }
+    // Folded sections open up front so the whole body reads without extra clicks.
+    fragment.querySelectorAll('details').forEach(node => { node.open = true; });
+    const box = el('div', 'cd-rich');
+    box.append(fragment);
+    return box;
+}
+
+// Themes often style quotes, emphasis and headings only inside #chat. A hidden sample message is
+// measured there for one synchronous moment and the results are copied, so the reader follows
+// whichever theme is active without naming any of them.
+const SAMPLE_TAGS = ['q', 'em', 'i', 'strong', 'b', 'u', 'del', 'a', 'code', 'blockquote', 'h1', 'h2', 'h3', 'p'];
+const BASE_PROPS = ['color', 'font-family', 'font-size', 'font-weight', 'font-style', 'line-height', 'letter-spacing', 'text-shadow', 'text-align', 'text-indent', '-webkit-text-fill-color'];
+const TAG_PROPS = [...BASE_PROPS, 'background-color', 'text-decoration-line', 'text-decoration-color', 'text-decoration-style', 'text-decoration-thickness', 'border-left-width', 'border-left-style', 'border-left-color', 'border-radius', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left', 'margin-top', 'margin-bottom'];
+function syncChatStyles() {
+    document.getElementById('sideleaf-chat-style')?.remove();
+    const chat = document.getElementById('chat');
+    if (!chat) return;
+    const probe = el('div', 'mes'), block = el('div', 'mes_block'), text = el('div', 'mes_text');
+    probe.setAttribute('is_user', 'false'); probe.setAttribute('aria-hidden', 'true'); probe.style.display = 'none';
+    const samples = SAMPLE_TAGS.map(tag => { const node = el(tag, '', 'x'); text.append(node); return [` ${tag}`, node, text]; });
+    const quoted = el('em', '', 'x'); samples[0][1].append(quoted); samples.push([' q em', quoted, samples[0][1]]);
+    block.append(text); probe.append(block); chat.append(probe);
+    const style = el('style'); style.id = 'sideleaf-chat-style'; document.head.append(style);
+    try {
+        const copy = (selector, node, props, parent) => {
+            const computed = getComputedStyle(node), against = parent && getComputedStyle(parent);
+            const rule = style.sheet.cssRules[style.sheet.insertRule(`#sideleaf-dialog .cd-rich${selector} {}`, style.sheet.cssRules.length)];
+            for (const prop of props) {
+                const value = computed.getPropertyValue(prop);
+                if (value && (!against || value !== against.getPropertyValue(prop))) rule.style.setProperty(prop, value);
+            }
+        };
+        copy('', text, BASE_PROPS, null);
+        for (const [selector, node, parent] of samples) copy(selector, node, TAG_PROPS, parent);
+    } finally {
+        probe.remove();
+    }
+}
+
 function textBlock(text) {
     const box = el('div', 'cd-text-wrap');
     let shown = 0;
@@ -557,7 +614,7 @@ function row(item) {
     if (open) {
         const body = el('div', 'cd-card-body');
         if (archive) body.append(itemTools(item, versions, current, () => { const next = row(item); card.replaceWith(next); }));
-        body.append(textBlock(current.text));
+        body.append(contentBlock(item, current));
         card.append(body);
     }
     return card;
@@ -643,7 +700,7 @@ function showReader(item) {
     const content = el('div', 'cd-reading-content');
     const sheet = el('article', 'cd-page');
     const meta = [speaker(item.message), `#${item.index}`, new Date(item.archivedAt).toLocaleDateString(), current.label];
-    sheet.append(el('h1', 'cd-page-title', itemTitle(item, current.text)), el('p', 'cd-page-meta', meta.join(' · ')), textBlock(current.text));
+    sheet.append(el('h1', 'cd-page-title', itemTitle(item, current.text)), el('p', 'cd-page-meta', meta.join(' · ')), contentBlock(item, current));
     content.append(sheet);
     const controls = 'button,select,input,textarea';
     // Horizontal touch swipes page through items; vertical scrolling stays native.
