@@ -135,6 +135,8 @@
 #sideleaf-dialog .cd-rich > :last-child { margin-bottom: 0; }
 #sideleaf-dialog .cd-rich p { margin: 0 0 .9em; }
 #sideleaf-dialog .cd-rich q { color: var(--SmartThemeQuoteColor, inherit); }
+/* Messages keep their own quote characters, so the browser's automatic ones stay off (as in the chat). */
+#sideleaf-dialog .cd-rich q::before, #sideleaf-dialog .cd-rich q::after { content: ''; }
 #sideleaf-dialog .cd-rich :is(em, i) { color: var(--SmartThemeEmColor, inherit); }
 #sideleaf-dialog .cd-rich q :is(em, i) { color: inherit; }
 #sideleaf-dialog .cd-rich u { color: var(--SmartThemeUnderlineColor, inherit); }

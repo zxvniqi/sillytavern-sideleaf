@@ -514,6 +514,13 @@ function syncChatStyles() {
         };
         copy('', text, BASE_PROPS, null);
         for (const [selector, node, parent] of samples) copy(selector, node, TAG_PROPS, parent);
+        // Quote marks and similar decorations live in pseudo-elements (chat usually hides the browser's own).
+        for (const [selector, node] of samples) for (const pseudo of ['::before', '::after']) {
+            const computed = getComputedStyle(node, pseudo), content = computed.getPropertyValue('content');
+            if (!content || content === 'none' || content === 'normal') continue;
+            const rule = style.sheet.cssRules[style.sheet.insertRule(`#sideleaf-dialog .cd-rich${selector}${pseudo} {}`, style.sheet.cssRules.length)];
+            for (const prop of ['content', 'color']) rule.style.setProperty(prop, computed.getPropertyValue(prop));
+        }
     } finally {
         probe.remove();
     }
