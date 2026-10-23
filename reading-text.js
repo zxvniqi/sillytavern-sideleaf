@@ -1,4 +1,5 @@
-// Read detached text only; never insert archived markup into the live document.
+// Plain-text extraction for search, titles, copying and screen capture. Display formatting is done
+// separately in index.js (contentBlock) after sanitising.
 export function readableText(root) {
     const blocks = new Set(['P','DIV','SECTION','ARTICLE','DETAILS','SUMMARY','LI','UL','OL','PRE','BLOCKQUOTE','H1','H2','H3','H4','H5','H6','TR']);
     const ignored = new Set(['SCRIPT','STYLE','IFRAME','TEMPLATE','NOSCRIPT','BUTTON','SVG']);

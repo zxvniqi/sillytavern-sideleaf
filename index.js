@@ -116,9 +116,17 @@ const chatChanged = ctx => snapshot.length !== ctx.chat.length || snapshot.some(
 function statusLine(text = '') {
     const node = el('p', 'cd-status', text); node.setAttribute('role', 'status'); return node;
 }
+// `text` is plain (search, titles, copy, editing); `raw` keeps the markup for chat-style rendering.
+// Parsing <details> markup is the costly part, so results are cached per message until a source changes.
+const versionCache = new WeakMap();
 function versionsOf(item) {
-    // `text` is plain (search, titles, copy, editing); `raw` keeps the markup for chat-style rendering.
-    return readingVersions(item).map(version => ({...version, raw:version.text, text:fullDetailsText(version.text)}));
+    const message = item.message;
+    const sources = [message?.mes, message?.extra?.display_text, item.screenText, item.screenTextComplete, item.editedText];
+    const cached = message && typeof message === 'object' ? versionCache.get(message) : null;
+    if (cached && cached.sources.every((value, i) => value === sources[i])) return cached.versions;
+    const versions = readingVersions(item).map(version => ({...version, raw:version.text, text:fullDetailsText(version.text)}));
+    if (message && typeof message === 'object') versionCache.set(message, {sources, versions});
+    return versions;
 }
 function chosenVersion(item, versions) {
     return versions.find(v => v.key === versionChoice.get(item.key)) || versions[0];
@@ -222,6 +230,13 @@ async function commit(kind, edit = null) {
         await finishSave();
     } catch (error) {
         busy = false;
+        // The chat was switched mid-save: nothing was written to it, and this dialog belongs to the old chat.
+        if (dialog && !pending && openedChat !== chatIdentity(context())) {
+            console.error('[Sideleaf]', error);
+            close(true);
+            globalThis.toastr?.warning('채팅이 바뀌어 별지 작업을 중단했습니다. 원래 채팅은 변경되지 않았습니다.', '별지');
+            return;
+        }
         if (editing && dialog && !pending) { lockForm(false); note(error.message, true); }
         else {
             editing = null;
@@ -230,8 +245,19 @@ async function commit(kind, edit = null) {
         }
         if (!pending && !dialog) clearArchiveCache();
         console.error('[Sideleaf]', error);
+    } finally {
+        // The message-menu path borrows the selection state; release the chat snapshot afterwards.
+        if (!dialog && !pending) { snapshot = []; view = 'archive'; selected.clear(); }
     }
 }
+
+const SAVED_NOTES = {
+    migrate: '분리 저장으로 전환했습니다. 다른 서버로 옮길 때는 통합 백업을 사용해주세요.',
+    archive: '별지에 보관했습니다.',
+    restore: '채팅 끝에 복원했습니다.',
+    edit: '변경 사항을 저장했습니다.',
+    order: '변경 사항을 저장했습니다.',
+};
 
 async function finishSave() {
     const operation = pending;
@@ -244,19 +270,26 @@ async function finishSave() {
     await verifySave(operation.ctx, operation.revision);
     if (chatIdentity(context()) !== operation.identity) throw new Error('채팅이 바뀌었습니다. 저장한 채팅을 다시 열어 확인해주세요.');
     pending = null;
+    // The save is verified from here on; a failure to redraw must not be reported as a failed save.
+    let redrawFailed = false;
     try {
         if (['archive','restore'].includes(operation.kind)) await refreshChat();
         if (operation.kind === 'archive') await context().eventSource.emit(context().eventTypes.MESSAGE_DELETED, context().chat.length);
         await context().eventSource.emit('sideleaf:changed', { kind: operation.kind, chatId: context().chatId });
+    } catch (error) {
+        redrawFailed = true;
+        console.warn('[Sideleaf] Saved, but refreshing the chat view failed', error);
     } finally {
-        busy = false; if (operation.kind !== 'edit' && operation.kind !== 'order') page = 0;
+        busy = false;
+        if (operation.kind !== 'edit' && operation.kind !== 'order') page = 0;
         view = 'archive';
         if (operation.kind === 'order') { sortMode = 'manual'; context().accountStorage?.setItem('sideleaf.sort', sortMode); }
-        if (readerReturn) { const target = archiveItems().find(x=>x.key===readerReturn); readerReturn = null; if (target) showReader(target); else render(); }
-        else render();
+        const target = readerReturn && archiveItems().find(x => x.key === readerReturn);
+        readerReturn = null;
+        if (target) showReader(target); else render();
     }
     if (!dialog) clearArchiveCache();
-    note(operation.kind === 'migrate' ? '분리 저장으로 전환했습니다. 다른 서버로 옮길 때는 통합 백업을 사용해주세요.' : operation.kind === 'archive' ? '별지에 보관했습니다.' : ['edit','order'].includes(operation.kind) ? '변경 사항을 저장했습니다.' : '채팅 끝에 복원했습니다.');
+    note(SAVED_NOTES[operation.kind] + (redrawFailed ? ' 채팅 화면이 바로 바뀌지 않으면 채팅을 다시 열어주세요.' : ''));
 }
 
 function close(discardEdit = false) {
@@ -301,7 +334,7 @@ function open() {
 
 function header(ctx, drawer, locked) {
     const bar = el('header', 'cd-header');
-    const brand = el('div', 'cd-brand'); brand.append(icon('leaf'));
+    const brand = el('div', 'cd-brand'); brand.append(icon('star'));
     const names = el('div', 'cd-brand-text');
     const chatName = el('span', 'cd-subtitle', ctx.chatId ? String(ctx.chatId) : '저장된 채팅을 먼저 열어주세요.'); chatName.title = chatName.textContent;
     names.append(el('h2', '', '별지'), chatName); brand.append(names);
@@ -342,7 +375,7 @@ function render() {
     const tabs = el('nav', 'cd-tabs'); tabs.setAttribute('aria-label', '별지 보기');
     for (const [key, label, count] of [['archive', '보관함', drawer.items.length], ['select', '메시지 보관하기', null]]) {
         const tab = button(label, () => { if (view === key) return; view = key; page = 0; search = ''; editMode = false; selected.clear(); expanded.clear(); render(); }, 'cd-tab');
-        tab.prepend(icon(key === 'archive' ? 'leaf' : 'all'));
+        tab.prepend(icon(key === 'archive' ? 'star' : 'all'));
         if (count !== null) tab.append(el('span', 'cd-count', String(count)));
         tab.setAttribute('aria-pressed', String(view === key)); tab.disabled = locked;
         tabs.append(tab);
@@ -394,7 +427,7 @@ function render() {
             backup.disabled = locked; bulk.append(backup);
             if (ctx.chatMetadata?.[KEY]?.version !== 2 && drawer.items.length) {
                 const migrate = iconButton('split', '별지 본문을 채팅 파일 밖으로 분리해 저장', () => commit('migrate'), '분리 저장 전환');
-                migrate.disabled = locked || generating; bulk.append(migrate);
+                migrate.classList.add('cd-migrate'); migrate.disabled = locked || generating; bulk.append(migrate);
             }
         }
         const hint = el('p', 'cd-hint', view === 'select'
@@ -410,7 +443,7 @@ function render() {
     page = Math.min(page, pages - 1);
     for (const item of filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)) list.append(row(item));
     if (!filtered.length) {
-        const empty = el('div', 'cd-empty'); empty.append(icon(query ? 'search' : 'leaf'));
+        const empty = el('div', 'cd-empty'); empty.append(icon(query ? 'search' : 'star'));
         if (query) empty.append(el('p', '', '검색 결과가 없습니다.'));
         else if (view === 'archive') {
             empty.append(el('strong', '', '아직 보관한 메시지가 없어요'), el('p', '', '메시지 메뉴의 별 아이콘이나 아래 버튼으로 필요한 메시지만 옮겨두세요.'));
@@ -427,7 +460,7 @@ function render() {
         parts.push(pagination);
     }
     const footer = el('footer', 'cd-footer');
-    const status = statusLine(generating ? '응답 생성 중에는 보관·복원을 잠시 멈춥니다.' : '');
+    const status = statusLine(generating ? GENERATING_NOTE : '');
     if (pending && !busy) {
         footer.classList.add('cd-alert');
         footer.append(el('span', 'cd-selected', '저장을 확인하지 못했습니다'), el('span', 'cd-spacer'),
@@ -445,7 +478,7 @@ function render() {
         parts.push(footer);
     } else if (selecting) {
         const count = el('span', 'cd-selected');
-        const action = iconButton(view === 'archive' ? 'restore' : 'leaf', view === 'archive' ? '선택한 원본 메시지를 현재 채팅 끝에 추가' : '선택한 메시지를 대화에서 빼서 별지에 보관',
+        const action = iconButton(view === 'archive' ? 'restore' : 'star', view === 'archive' ? '선택한 원본 메시지를 현재 채팅 끝에 추가' : '선택한 메시지를 대화에서 빼서 별지에 보관',
             () => commit(view === 'archive' ? 'restore' : 'archive'), view === 'archive' ? '채팅 끝에 복원' : '별지에 보관');
         action.classList.add('cd-primary');
         footer.append(count, el('span', 'cd-spacer'), action);
@@ -455,6 +488,17 @@ function render() {
     parts.push(status);
     dialog.replaceChildren(...parts);
     updateSelection();
+}
+
+const GENERATING_NOTE = '응답 생성 중에는 보관·복원을 잠시 멈춥니다.';
+function refreshGenerationState() {
+    if (!dialog || editing || reader || busy || pending) return;
+    const generating = isGenerating();
+    if (selectionUi) { selectionUi.generating = generating; updateSelection(); }
+    dialog.querySelectorAll('.cd-migrate').forEach(node => { node.disabled = generating; });
+    const status = dialog.querySelector('.cd-status');
+    // Leave other messages (saved, errors) alone; only toggle the generation notice itself.
+    if (status && (!status.textContent || status.textContent === GENERATING_NOTE)) { status.textContent = generating ? GENERATING_NOTE : ''; status.dataset.error = 'false'; }
 }
 
 function updateSelection() {
@@ -468,20 +512,26 @@ function updateSelection() {
 // Archived bodies are formatted like the chat (markdown, quotes, regex display scripts),
 // then everything that could run code, embed frames, submit forms or restyle the page is dropped.
 const BLOCKED_TAGS = ['script', 'style', 'link', 'meta', 'base', 'iframe', 'frame', 'frameset', 'object', 'embed', 'form', 'input', 'button', 'textarea', 'select', 'option', 'template', 'noscript', 'audio', 'video', 'source', 'track', 'canvas'];
+// Attributes that could point at page controls behind the dialog are dropped as well.
+const BLOCKED_ATTRS = ['id', 'name', 'for', 'form', 'formaction', 'srcdoc', 'popovertarget', 'popovertargetaction'];
 function contentBlock(item, version) {
+    // The screen capture is already-rendered text; formatting it again would re-run markdown and regex scripts.
+    if (version.key === 'screen') return textBlock(version.text);
     const ctx = context(), purify = globalThis.SillyTavern?.libs?.DOMPurify;
     if (typeof ctx.messageFormatting !== 'function' || typeof purify?.sanitize !== 'function') return textBlock(version.text);
     let fragment;
     try {
         const message = item.message;
         const html = ctx.messageFormatting(version.raw, message.name ?? '', Boolean(message.is_system), Boolean(message.is_user), undefined);
-        fragment = purify.sanitize(html, { RETURN_DOM_FRAGMENT: true, FORBID_TAGS: BLOCKED_TAGS, FORBID_ATTR: ['id', 'name', 'srcdoc', 'formaction'] });
+        fragment = purify.sanitize(html, { RETURN_DOM_FRAGMENT: true, FORBID_TAGS: BLOCKED_TAGS, FORBID_ATTR: BLOCKED_ATTRS });
     } catch (error) {
         console.warn('[Sideleaf] Falling back to plain text', error);
         return textBlock(version.text);
     }
     // Folded sections open up front so the whole body reads without extra clicks.
     fragment.querySelectorAll('details').forEach(node => { node.open = true; });
+    // Links open in a new tab so the SillyTavern page (and any unsaved state) stays put.
+    fragment.querySelectorAll('a[href]').forEach(link => { link.target = '_blank'; link.rel = 'noopener noreferrer'; });
     const box = el('div', 'cd-rich');
     box.append(fragment);
     return box;
@@ -501,7 +551,8 @@ function syncChatStyles() {
     probe.setAttribute('is_user', 'false'); probe.setAttribute('aria-hidden', 'true'); probe.style.display = 'none';
     const samples = SAMPLE_TAGS.map(tag => { const node = el(tag, '', 'x'); text.append(node); return [` ${tag}`, node, text]; });
     const quoted = el('em', '', 'x'); samples[0][1].append(quoted); samples.push([' q em', quoted, samples[0][1]]);
-    block.append(text); probe.append(block); chat.append(probe);
+    // Prepended so `:last-child` rules never touch the real last message during the measurement.
+    block.append(text); probe.append(block); chat.prepend(probe);
     const style = el('style'); style.id = 'sideleaf-chat-style'; document.head.append(style);
     try {
         const copy = (selector, node, props, parent) => {
@@ -526,14 +577,20 @@ function syncChatStyles() {
     }
 }
 
+// Plain text, never parsed as HTML. Quoted passages are wrapped in <q> so they keep the theme's quote colour.
+const QUOTED = /("[^"\n]+"|“[^”\n]+”|「[^」\n]+」|『[^』\n]+』)/;
+function quotedText(text) {
+    const node = el('div', 'cd-text cd-rich');
+    text.split(QUOTED).forEach((part, i) => node.append(i % 2 ? el('q', '', part) : part));
+    return node;
+}
 function textBlock(text) {
     const box = el('div', 'cd-text-wrap');
     let shown = 0;
-    // Read-only text prevents QR HTML/iframe/JS extensions from executing archived content.
     const more = button('본문 더 보기', () => append(), 'cd-more');
     const append = () => {
         more.remove();
-        box.append(el('div', 'cd-text', text.slice(shown, shown + 20000)));
+        box.append(quotedText(text.slice(shown, shown + 20000)));
         shown += 20000;
         if (shown < text.length) box.append(more);
     };
@@ -755,7 +812,7 @@ function showReaderList() {
     let offset = 0;
     const entry = item => {
         const node = button('', () => showReader(item), 'cd-jump-item');
-        const text = versionsOf(item)[0].text;
+        const text = chosenVersion(item, versionsOf(item)).text;
         node.append(el('strong', '', itemTitle(item, text)), el('span', 'cd-card-meta', `${speaker(item.message)} · #${item.index}`));
         if (item.key === readerKey) node.setAttribute('aria-current', 'true');
         return node;
@@ -771,7 +828,8 @@ function showReaderList() {
         pages.append(previous, el('span', 'cd-page-count', `${offset / PAGE_SIZE + 1} / ${Math.ceil(found.length / PAGE_SIZE)}`), next);
         list.append(pages);
     };
-    input.addEventListener('input', () => { offset = 0; draw(); });
+    let timer;
+    input.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(() => { offset = 0; draw(); }, 150); });
     const head = el('div', 'cd-jump-head'); head.append(field, iconButton('close', '목록 닫기', dismiss));
     popup.append(head, list); dialog.append(shade, popup); draw();
     list.querySelector('[aria-current="true"]')?.scrollIntoView({block:'center'});
@@ -834,7 +892,7 @@ function addMessageButtons() {
         if (message.querySelector('.sideleaf-archive-button')) continue;
         const target = message.querySelector('.extraMesButtons, .mes_buttons');
         if (!target) continue;
-        const entry = el('button', 'sideleaf-archive-button mes_button'); entry.append(icon('leaf'));
+        const entry = el('button', 'sideleaf-archive-button mes_button'); entry.append(icon('star'));
         entry.type = 'button'; entry.title = '별지에 보관'; entry.setAttribute('aria-label', '별지에 보관');
         entry.addEventListener('click', archiveFromMessage); target.append(entry);
     }
@@ -847,7 +905,7 @@ function initialize() {
     const container = el('div', 'extension_container');
     const entry = button('별지', () => open(), 'list-group-item flex-container flexGap5');
     entry.id = 'sideleaf-wand';
-    entry.prepend(icon('leaf'));
+    entry.prepend(icon('star'));
     container.append(entry); menu.append(container);
     const ctx = context();
     installQrSource(context);
@@ -858,7 +916,8 @@ function initialize() {
     addMessageButtons();
     // Preview/dry-run generation also emits STARTED, sometimes without ENDED.
     // Read the core state instead of keeping a potentially stale event latch.
-    const updateGeneration = () => { if (dialog) setTimeout(() => { if (dialog && !document.activeElement?.matches('.cd-search')) render(); }, 0); };
+    // Only the generation-dependent controls change; rebuilding the list would reset scroll and drags.
+    const updateGeneration = () => { if (dialog) setTimeout(refreshGenerationState, 0); };
     on('GENERATION_STARTED', updateGeneration);
     on('GENERATION_ENDED', updateGeneration);
     on('GENERATION_STOPPED', updateGeneration);

@@ -128,7 +128,8 @@
 #sideleaf-dialog .cd-card :is(.cd-text, .cd-rich) { padding: 14px 16px; border-radius: 10px; background: var(--sl-message-bg, var(--sl-soft)); max-height: 60vh; overflow-y: auto; }
 /* Chat-style body. Defaults follow SillyTavern's own message rules; the live theme's values are copied over them on open. */
 #sideleaf-dialog .cd-rich {
-    width: 100%; overflow-wrap: anywhere;
+    /* Paint containment keeps archived inline styles (e.g. position: fixed) inside the body box. */
+    position: relative; contain: paint; width: 100%; overflow-wrap: anywhere;
     font-family: var(--sl-chat-font, inherit); font-size: var(--sl-chat-size, 1em); line-height: var(--sl-chat-line, 1.8); letter-spacing: var(--sl-chat-spacing, normal);
 }
 #sideleaf-dialog .cd-rich > :first-child { margin-top: 0; }
