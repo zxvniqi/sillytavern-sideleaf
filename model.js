@@ -77,8 +77,14 @@ export function readingVersions(item) {
     if (typeof item.editedText === 'string' && !originals.includes(item.editedText)) versions.push({ key: 'edited', label: '수정본', text: item.editedText });
     const translated = item.message?.extra?.display_text;
     if (typeof translated === 'string' && translated.trim() && translated !== item.message.mes) versions.push({ key: 'translation', label: '번역·표시문', text: translated });
-    if (item.screenText?.trim() && !versions.some(v => v.text === item.screenText)) versions.push({ key: 'screen', label: '보관 당시 화면', text: item.screenText });
+    // Older captures used innerText, which omits the body of closed <details>.
+    // Prefer the intact original for those records without rewriting saved data.
+    const legacyDetails = /<details\b/i.test(String(item.message?.mes ?? '')) && item.screenTextComplete !== true;
+    const screen = item.screenText?.trim() && !versions.some(v => v.text === item.screenText)
+        ? { key:'screen', label:'보관 당시 화면', text:item.screenText } : null;
+    if (screen && !legacyDetails) versions.push(screen);
     versions.push({ key: 'original', label: '원문', text: String(item.message?.mes ?? '') });
+    if (screen && legacyDetails) versions.push(screen);
     return versions;
 }
 

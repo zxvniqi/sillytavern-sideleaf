@@ -2,6 +2,7 @@ import { KEY, PAGE_SIZE, readDrawer, archivePlan, restorePlan, chatIdentity, pre
 import { isGenerating } from '../../../../script.js';
 import { icon } from './icons.js';
 import { installQrSource } from './qr-source.js';
+import { readableText, fullDetailsText } from './reading-text.js';
 
 const context = () => SillyTavern.getContext();
 let dialog;
@@ -103,9 +104,13 @@ async function commit(kind, edit = null) {
             ? archivePlan(ctx.chat, readDrawer(ctx.chatMetadata), [...selected], id)
             : restorePlan(ctx.chat, readDrawer(ctx.chatMetadata), [...selected], id);
         if (kind === 'archive') for (const item of plan.affected) {
-            const text = document.querySelector(`#chat .mes[mesid="${item.originalIndex}"] .mes_text`)?.innerText?.trim();
+            const body = document.querySelector(`#chat .mes[mesid="${item.originalIndex}"] .mes_text`);
+            const text = body ? readableText(body) : '';
             // Capture only the selected message body, never the surrounding chat/UI.
-            if (text && !item.message.extra?.display_text && text !== String(item.message.mes).trim()) item.screenText = text;
+            if (text && !item.message.extra?.display_text && text !== String(item.message.mes).trim()) {
+                item.screenText = text;
+                item.screenTextComplete = true;
+            }
         }
         busy = true;
         pending = { ctx, kind, revision: plan.drawer.revision, identity: openedChat,
@@ -298,7 +303,7 @@ function row(item, full = false) {
         top.append(grip,move);
     }
     const details = el('details', 'cd-detail');
-    const versions = readingVersions(item);
+    const versions = readingVersions(item).map(version => ({...version, text:fullDetailsText(version.text)}));
     let current = versions[0];
     const summary = el('summary');
     summary.append(el('strong', 'cd-item-title', item.title || preview({ mes: current.text }, 60)));

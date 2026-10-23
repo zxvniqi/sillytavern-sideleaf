@@ -112,3 +112,12 @@ test('QR titles prefer accepted subject and tolerate malformed metadata', () => 
     assert.equal(p.chat.length,1);
 });
 
+
+test('legacy closed-details capture cannot hide the intact original body', () => {
+    const item={message:message('<details><summary>Heading</summary>Complete body</details>'),screenText:'Heading'};
+    assert.deepEqual(readingVersions(item).map(x=>x.key),['original','screen']);
+    assert.ok(readingVersions(item)[0].text.includes('Complete body'));
+    const full={...item,screenText:'Heading\nComplete body',screenTextComplete:true};
+    assert.equal(readingVersions(full)[0].key,'screen');
+    assert.equal(readingVersions({...item,message:message(item.message.mes,{display_text:'Full translated body'})})[0].key,'translation');
+});
