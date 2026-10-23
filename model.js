@@ -17,12 +17,35 @@ export function archivePlan(chat, drawer, indices, idFactory, now = Date.now()) 
     const added = ids.map(index => ({
         id: idFactory(), archivedAt: now, originalIndex: index,
         message: structuredClone(chat[index]),
+        ...(chat[index]?.extra?.sideleafSource ? { title: sourceTitle(chat[index].extra.sideleafSource) } : {}),
     }));
     return {
         chat: chat.filter((_, i) => !picked.has(i)),
         drawer: { ...drawer, revision: idFactory(), items: [...drawer.items, ...added] },
         affected: added,
     };
+}
+
+export function sourceTitle(source) {
+    const subject = typeof source?.subject === 'string' ? source.subject.trim() : '';
+    const label = typeof source?.label === 'string' ? source.label.trim() : '';
+    return (subject || label).replace(/\s+/g, ' ').slice(0, 160);
+}
+
+export function orderedItems(drawer, mode = 'desc') {
+    const chronological = drawer.items.map((item, index) => ({item,index})).sort((a,b)=>(a.item.archivedAt-b.item.archivedAt)||a.index-b.index).map(x=>x.item);
+    if (mode === 'asc') return chronological;
+    if (mode !== 'manual' || !Array.isArray(drawer.order)) return chronological.reverse();
+    const byId = new Map(drawer.items.map(item=>[item.id,item]));
+    const seen = new Set();
+    const saved = drawer.order.filter(key=>byId.has(key) && !seen.has(key) && seen.add(key)).map(key=>byId.get(key));
+    return [...chronological.reverse().filter(item=>!seen.has(item.id)), ...saved];
+}
+
+export function reorderPlan(chat, drawer, order, idFactory) {
+    const keys = new Set(drawer.items.map(item=>item.id));
+    if (order.length !== keys.size || new Set(order).size !== keys.size || order.some(key=>!keys.has(key))) throw new Error('보관 목록이 변경되었습니다. 순서를 다시 지정해주세요.');
+    return { chat: chat.slice(), drawer: {...drawer, order:[...order], revision:idFactory()} };
 }
 
 export function restorePlan(chat, drawer, ids, idFactory) {

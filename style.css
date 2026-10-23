@@ -78,3 +78,36 @@
     #sideleaf-dialog, #sideleaf-dialog:has(.cd-editor) { width: 100vw; height: 100dvh; max-height: 100dvh; border-radius: 0; padding: 12px; }
     #sideleaf-dialog .cd-reading-content .cd-card, #sideleaf-dialog .cd-body { padding: 10px 0; }
 }
+
+/* Compact controls are scoped to Sideleaf so other extensions keep their styles. */
+#sideleaf-dialog [hidden] { display: none !important; }
+#sideleaf-dialog .cd-icon, #sideleaf-wand .cd-icon, #chat .sideleaf-archive-button .cd-icon { width: 20px; height: 20px; flex: 0 0 20px; display: inline-block; vertical-align: middle; pointer-events: none; }
+#sideleaf-dialog .cd-brand, #sideleaf-dialog .cd-actions, #sideleaf-dialog .cd-toolbar { display: flex; align-items: center; gap: 6px; }
+#sideleaf-dialog .cd-brand { gap: 10px; }
+#sideleaf-dialog .cd-brand .cd-icon { width: 28px; height: 28px; flex-basis: 28px; }
+#sideleaf-dialog .cd-toolbar { flex-shrink: 0; }
+#sideleaf-dialog .cd-toolbar .cd-search { min-width: 0; flex: 1; }
+#sideleaf-dialog .cd-icon-button, #sideleaf-dialog .cd-version-wrap { width: 36px; height: 36px; min-height: 36px; padding: 7px; flex: 0 0 36px; margin: 0; border: 0; border-radius: 8px; }
+#sideleaf-dialog .cd-version-wrap { display: inline-flex; align-items: center; justify-content: center; position: relative; }
+#sideleaf-dialog .cd-version-wrap:hover { background: color-mix(in srgb, currentColor 10%, transparent); }
+#sideleaf-dialog .cd-version-wrap:focus-within { outline: 2px solid currentColor; outline-offset: 2px; }
+#sideleaf-dialog .cd-version-wrap .cd-version { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; margin: 0; }
+#sideleaf-dialog .cd-sort { max-width: 155px; min-height: 38px; border-radius: 8px; padding: 5px; background: transparent; color: inherit; font: inherit; font-size: .8em; border: 1px solid var(--SmartThemeBorderColor, #555866); }
+#sideleaf-dialog .cd-sort option { color: CanvasText; background: Canvas; }
+#sideleaf-dialog .cd-reader-tools { gap: 3px; margin-top: 6px; }
+#sideleaf-dialog .cd-drop-target { outline: 2px solid currentColor; outline-offset: -2px; }
+#sideleaf-dialog [draggable="true"] { cursor: grab; touch-action: none; }
+#sideleaf-dialog .cd-reader-count { font-size: .75em; white-space: nowrap; font-variant-numeric: tabular-nums; }
+#sideleaf-dialog .cd-reading-content { touch-action: pan-y; overscroll-behavior: contain; }
+#sideleaf-dialog .cd-jump { position: absolute; z-index: 2; top: 64px; left: 50%; transform: translateX(-50%); width: min(620px, calc(100% - 24px)); max-height: calc(100% - 90px); display: flex; flex-direction: column; gap: 12px; padding: 16px; border-radius: 12px; border: 1px solid currentColor; background-color: inherit; background-image: inherit; background-size: cover; box-shadow: 0 12px 60px #0006; }
+#sideleaf-dialog .cd-jump .cd-search { min-width: 0; }
+#sideleaf-dialog .cd-jump-items { overflow-y: auto; min-height: 0; }
+#sideleaf-dialog .cd-jump-items > .cd-button { width: 100%; justify-content: flex-start; white-space: normal; text-align: start; margin: 0 0 6px; }
+#sideleaf-dialog .cd-jump-items [aria-current="true"] { background: color-mix(in srgb, currentColor 12%, transparent); }
+#sideleaf-dialog .cd-jump-items .cd-actions { justify-content: center; }
+@media (max-width: 480px) {
+    #sideleaf-dialog .cd-header { gap: 4px; }
+    #sideleaf-dialog .cd-actions { gap: 2px; }
+    #sideleaf-dialog .cd-sort { max-width: 112px; }
+    #sideleaf-dialog .cd-reader-tools .cd-button { flex: 0 0 36px; }
+}

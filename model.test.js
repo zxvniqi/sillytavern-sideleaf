@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { archivePlan, restorePlan, readDrawer, chatIdentity, KEY, readingVersions, editPlan } from './model.js';
+import { archivePlan, restorePlan, readDrawer, chatIdentity, KEY, readingVersions, editPlan, orderedItems, reorderPlan, sourceTitle } from './model.js';
 
 let counter = 0;
 const id = () => `id-${++counter}`;
@@ -86,3 +86,29 @@ test('10,000-message selection and JSON roundtrip preserve exact content', () =>
     assert.equal(plan.chat.length, 9997);
     assert.deepEqual(drawer.items.map(x => x.message), [chat[1], chat[5000], chat[9999]]);
 });
+
+test('sorting and manual order preserve original restore order through JSON', () => {
+    const p = archivePlan(['keep','one','two','three'].map(x=>message(x)), readDrawer({}), [1,2,3], id, 100);
+    assert.deepEqual(orderedItems(p.drawer,'asc').map(x=>x.message.mes), ['one','two','three']);
+    assert.deepEqual(orderedItems(p.drawer,'desc').map(x=>x.message.mes), ['three','two','one']);
+    const ids=p.drawer.items.map(x=>x.id), order=[ids[1],ids[2],ids[0]];
+    const moved=reorderPlan(p.chat,p.drawer,order,id);
+    const persisted=JSON.parse(JSON.stringify(moved.drawer));
+    assert.deepEqual(orderedItems(persisted,'manual').map(x=>x.message.mes), ['two','three','one']);
+    assert.deepEqual(restorePlan(p.chat,persisted,order,id).chat.map(x=>x.mes), ['keep','one','two','three']);
+    assert.deepEqual(p.drawer.items.map(x=>x.id),ids);
+    assert.throws(()=>reorderPlan(p.chat,p.drawer,[ids[0],ids[0],ids[2]],id));
+    assert.throws(()=>reorderPlan(p.chat,p.drawer,[...ids,'missing'],id));
+    const extra={id:'new',archivedAt:200,message:message('new')};
+    assert.deepEqual(orderedItems({...persisted,items:[...persisted.items,extra],order:[...order,'missing',order[0]]},'manual').map(x=>x.message.mes), ['new','two','three','one']);
+});
+
+test('QR titles prefer accepted subject and tolerate malformed metadata', () => {
+    assert.equal(sourceTitle({label:'분석',subject:'  바다\n 여행  '}),'바다 여행');
+    assert.equal(sourceTitle({label:'분석',subject:' '}),'분석');
+    assert.equal(sourceTitle({label:123,subject:{}}),'');
+    const p=archivePlan([message('keep'),message('result',{sideleafSource:{label:'분석',subject:'주제'}})],readDrawer({}),[1],id);
+    assert.equal(p.drawer.items[0].title,'주제');
+    assert.equal(p.chat.length,1);
+});
+
