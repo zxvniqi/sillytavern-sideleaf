@@ -1,4 +1,4 @@
-import { KEY, PAGE_SIZE, readDrawer, itemTitle, archivePlan, restorePlan, chatIdentity, preview, readingVersions, editPlan, orderedItems, reorderPlan } from './model.js';
+import { KEY, PAGE_SIZE, readDrawer, itemTitle, archivePlan, restorePlan, chatIdentity, preview, readingVersions, editPlan, deletePlan, orderedItems, reorderPlan } from './model.js';
 import { icon } from './icons.js';
 import { installQrSource } from './qr-source.js';
 import { readableText, fullDetailsText } from './reading-text.js';
@@ -190,7 +190,8 @@ function makePlan(kind, chat, drawer, edit) {
     switch (kind) {
         case 'migrate': return { chat: chat.slice(), drawer: { ...drawer, revision: id() } };
         case 'order': return reorderPlan(chat, drawer, edit.order, id);
-        case 'edit': return editPlan(chat, drawer, edit.id, edit.title, edit.text, id);
+        case 'edit': return editPlan(chat, drawer, edit.id, edit.title, edit.change, id);
+        case 'delete': return deletePlan(chat, drawer, edit?.ids ?? [...selected], id);
         case 'archive': return archivePlan(chat, drawer, [...selected], id);
         default: return restorePlan(chat, drawer, [...selected], id);
     }
@@ -266,6 +267,7 @@ const SAVED_NOTES = {
     restore: '채팅 끝에 복원했습니다.',
     edit: '변경 사항을 저장했습니다.',
     order: '변경 사항을 저장했습니다.',
+    delete: '별지에서 삭제했습니다.',
 };
 
 async function finishSave() {
@@ -495,8 +497,15 @@ function render() {
         const action = iconButton(view === 'archive' ? 'restore' : 'star', view === 'archive' ? '선택한 원본 메시지를 현재 채팅 끝에 추가' : '선택한 메시지를 대화에서 빼서 별지에 보관',
             () => commit(view === 'archive' ? 'restore' : 'archive'), view === 'archive' ? '채팅 끝에 복원' : '별지에 보관');
         action.classList.add('cd-primary');
-        footer.append(count, el('span', 'cd-spacer'), action);
-        selectionUi = { count, action, none, generating };
+        footer.append(count, el('span', 'cd-spacer'));
+        let remove = null;
+        if (view === 'archive') {
+            remove = iconButton('trash', '선택한 항목을 별지에서 삭제', () => removeItems([...selected]), '삭제');
+            remove.classList.add('cd-danger');
+            footer.append(remove);
+        }
+        footer.append(action);
+        selectionUi = { count, action, remove, none, generating };
         parts.push(footer);
     }
     parts.push(status);
@@ -521,6 +530,7 @@ function updateSelection() {
     selectionUi.count.textContent = selected.size ? `${selected.size}개 선택됨` : '항목을 골라주세요';
     selectionUi.action.disabled = !selected.size || locked || !openedChat || selectionUi.generating;
     if (selectionUi.none) selectionUi.none.disabled = !selected.size || locked;
+    if (selectionUi.remove) selectionUi.remove.disabled = !selected.size || locked;
 }
 
 // Archived bodies are formatted like the chat (markdown, quotes, regex display scripts),
@@ -546,9 +556,28 @@ function contentBlock(item, version) {
     fragment.querySelectorAll('details').forEach(node => { node.open = true; });
     // Links open in a new tab so the SillyTavern page (and any unsaved state) stays put.
     fragment.querySelectorAll('a[href]').forEach(link => { link.target = '_blank'; link.rel = 'noopener noreferrer'; });
+    // Status windows from regex scripts arrive as HTML code blocks; show them as screens, not source.
+    fragment.querySelectorAll('pre > code').forEach(code => {
+        if (FRONTEND.test(code.textContent)) code.parentElement.replaceWith(framedHtml(code.textContent));
+    });
     const box = el('div', 'cd-rich');
     box.append(fragment);
     return box;
+}
+
+const FRONTEND = /<\s*(?:!doctype|html|head|body|style|div|section|article|table|span|img|p)\b/i;
+function framedHtml(html) {
+    const frame = el('iframe', 'cd-frame');
+    // No allow-scripts: nothing in the block can run. Same-origin only lets 별지 read its height.
+    frame.setAttribute('sandbox', 'allow-same-origin');
+    frame.setAttribute('referrerpolicy', 'no-referrer');
+    frame.title = '정규식 화면 (스크립트 없이 표시)';
+    frame.srcdoc = html;
+    frame.addEventListener('load', () => {
+        try { frame.style.height = `${Math.min(frame.contentDocument.documentElement.scrollHeight, 4000)}px`; }
+        catch { /* keep the CSS default height */ }
+    });
+    return frame;
 }
 
 // Themes often style quotes, emphasis and headings only inside #chat. A hidden sample message is
@@ -619,11 +648,25 @@ function itemTools(item, versions, current, refresh, reading = false) {
     tools.append(el('span', 'cd-spacer'));
     if (!reading) tools.append(iconButton('book', '넓은 화면으로 읽기', () => showReader(item), '크게 읽기'));
     const copy = iconButton('copy', '지금 보이는 본문 복사', () => copyText(current.text));
-    const title = iconButton('title', '제목 수정', () => editItem(item, current.text, true));
-    const body = iconButton('pencil', '읽기용 본문 수정 (원문은 보존)', () => editItem(item, current.text));
-    title.disabled = body.disabled = locked;
-    tools.append(copy, title, body);
+    const title = iconButton('title', '제목 수정', () => editItem(item, current, true));
+    const body = iconButton('pencil', `지금 보는 ${current.label} 고치기`, () => editItem(item, current));
+    const remove = iconButton('trash', '별지에서 삭제', () => removeItems([item.key]));
+    remove.classList.add('cd-danger');
+    title.disabled = body.disabled = remove.disabled = locked;
+    tools.append(copy, title, body, remove);
     return tools;
+}
+
+async function confirmDelete(count) {
+    const text = `${count}개 항목을 별지에서 삭제할까요? 대화로 복원되지 않고 별지에서 사라집니다.`;
+    const ctx = context();
+    if (typeof ctx.callGenericPopup === 'function' && ctx.POPUP_TYPE?.CONFIRM !== undefined) return Boolean(await ctx.callGenericPopup(text, ctx.POPUP_TYPE.CONFIRM));
+    return globalThis.confirm(text);
+}
+async function removeItems(ids) {
+    if (isLocked() || !ids.length || !(await confirmDelete(ids.length))) return;
+    if (reader) { reader = false; readerKey = null; }
+    commit('delete', {ids});
 }
 
 function row(item) {
@@ -723,7 +766,8 @@ function formScreen(heading, fields, cancel, onSave) {
     dialog.replaceChildren(bar, form, footer, status);
 }
 
-function editItem(item, text, titleOnly = false) {
+// Edits replace the version being read (original, translation, ...) in place; it is then marked "(수정)".
+function editItem(item, version, titleOnly = false) {
     if (busy || pending) return;
     editing = item.key;
     clearTimeout(searchTimer);
@@ -734,16 +778,20 @@ function editItem(item, text, titleOnly = false) {
     const title = el('input', 'cd-input'); title.value = item.title || ''; title.maxLength = 160; title.placeholder = '비워두면 본문 앞부분을 제목으로 씁니다';
     titleLabel.append(title);
     const fields = [titleLabel];
-    const body = el('textarea', 'cd-editor'); body.value = text;
+    // The editor shows the stored text with its markup, so saving keeps formatting intact.
+    const body = el('textarea', 'cd-editor'); body.value = version.raw;
     if (!titleOnly) {
-        const bodyLabel = el('label', 'cd-field cd-field-grow'); bodyLabel.append(el('span', 'cd-field-label', '읽기용 본문'), body);
-        fields.push(bodyLabel, el('p', 'cd-hint', '수정본은 별지에서 읽고 복사할 때만 씁니다. 원문·번역은 그대로 보존되고, 복원하면 원본 메시지가 돌아갑니다.'));
+        const bodyLabel = el('label', 'cd-field cd-field-grow'); bodyLabel.append(el('span', 'cd-field-label', `${version.label.replace(/\(수정\)$/, '')} 고치기`), body);
+        const hint = version.key === 'original'
+            ? '원문을 바로 고칩니다. 대화로 복원하면 고친 내용이 돌아갑니다.'
+            : '지금 보고 있는 본문을 바로 고칩니다.';
+        fields.push(bodyLabel, el('p', 'cd-hint', hint));
     }
     const cancel = () => { editing = null; readerReturn = null; if (wasReader) showReader(item); else render(); };
     const save = () => {
-        const nextText = titleOnly || body.value === text ? undefined : body.value;
-        if (title.value.trim() === (item.title || '') && nextText === undefined) { cancel(); return; }
-        commit('edit', {id:item.key, title:title.value, text:nextText});
+        const change = titleOnly || body.value === version.raw ? undefined : {key:version.key, text:body.value};
+        if (title.value.trim() === (item.title || '') && !change) { cancel(); return; }
+        commit('edit', {id:item.key, title:title.value, change});
     };
     formScreen(titleOnly ? '제목 수정' : '본문 수정', fields, cancel, save);
     (titleOnly ? title : body).focus();
@@ -769,12 +817,17 @@ function showReader(item) {
     const current = chosenVersion(item, versions);
     const bar = el('header', 'cd-reader-bar');
     const back = iconButton('back', '목록으로 (Esc)', exitReader, '목록');
-    const nav = el('div', 'cd-reader-nav');
-    const previous = iconButton('left', '이전 메시지 (←)', () => stepReader(-1)); previous.disabled = index <= 0;
-    const jump = button(`${index+1} / ${readerItems.length}`, showReaderList, 'cd-reader-count'); jump.prepend(icon('list')); jump.title = '목록에서 골라 이동';
-    const next = iconButton('right', '다음 메시지 (→)', () => stepReader(1)); next.disabled = index >= readerItems.length-1;
-    nav.append(previous, jump, next);
-    bar.append(back, nav, itemTools(item, versions, current, () => showReader(item), true));
+    // Built twice: in the top bar on wide screens, and in a bottom bar within thumb reach on phones (CSS picks one).
+    const makeNav = () => {
+        const nav = el('div', 'cd-reader-nav');
+        const previous = iconButton('left', '이전 메시지 (←)', () => stepReader(-1)); previous.disabled = index <= 0;
+        const jump = button(`${index+1} / ${readerItems.length}`, showReaderList, 'cd-reader-count'); jump.prepend(icon('list')); jump.title = '목록에서 골라 이동';
+        const next = iconButton('right', '다음 메시지 (→)', () => stepReader(1)); next.disabled = index >= readerItems.length-1;
+        nav.append(previous, jump, next);
+        return nav;
+    };
+    const foot = el('footer', 'cd-reader-foot'); foot.append(makeNav());
+    bar.append(back, makeNav(), itemTools(item, versions, current, () => showReader(item), true));
     const content = el('div', 'cd-reading-content');
     const sheet = el('article', 'cd-page');
     const meta = [speaker(item.message), `#${item.index}`, new Date(item.archivedAt).toLocaleDateString(), current.label];
@@ -800,7 +853,7 @@ function showReader(item) {
         stepReader(event.key === 'ArrowRight' ? 1 : -1);
     });
     const status = statusLine();
-    dialog.replaceChildren(bar, content, status); content.scrollTop = 0;
+    dialog.replaceChildren(bar, content, foot, status); content.scrollTop = 0;
     content.focus({preventScroll:true});
 }
 
@@ -908,7 +961,8 @@ function addMessageButtons() {
         if (!target) continue;
         const entry = el('button', 'sideleaf-archive-button mes_button'); entry.append(icon('star'));
         entry.type = 'button'; entry.title = '별지에 보관'; entry.setAttribute('aria-label', '별지에 보관');
-        entry.addEventListener('click', archiveFromMessage); target.append(entry);
+        // First in the row, so it sits at the left end next to the other message actions.
+        entry.addEventListener('click', archiveFromMessage); target.prepend(entry);
     }
 }
 
@@ -916,10 +970,14 @@ function initialize() {
     if (document.getElementById('sideleaf-wand')) return;
     const menu = document.getElementById('extensionsMenu');
     if (!menu) { console.warn('[Sideleaf] Wand menu unavailable'); return; }
-    const container = el('div', 'extension_container');
-    const entry = button('별지', () => open(), 'list-group-item flex-container flexGap5');
-    entry.id = 'sideleaf-wand';
-    entry.prepend(icon('star'));
+    // Same markup as SillyTavern's own wand entries, so themes align the icon and label the same way.
+    const container = el('div', 'extension_container interactable');
+    const entry = el('div', 'list-group-item flex-container flexGap5 interactable');
+    entry.id = 'sideleaf-wand'; entry.tabIndex = 0; entry.setAttribute('role', 'listitem'); entry.title = '별지 보관함 열기';
+    const glyph = el('div', 'extensionsMenuExtensionButton fa-fw'); glyph.append(icon('star'));
+    entry.append(glyph, el('span', '', '별지'));
+    entry.addEventListener('click', () => open());
+    entry.addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); open(); } });
     container.append(entry); menu.append(container);
     // Unsupported host: keep only the menu entry (which explains why) and hook into nothing else.
     if (missingFeatures().length) { console.warn('[Sideleaf] Missing host features:', missingFeatures()); return; }

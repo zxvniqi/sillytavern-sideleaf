@@ -1,8 +1,9 @@
 /* Sideleaf — every rule is scoped to Sideleaf's own nodes so themes and other extensions keep their styles. */
 
 /* Entry points outside the dialog */
-#sideleaf-wand { width: 100%; border: 0; background: transparent; color: inherit; text-align: start; font: inherit; cursor: pointer; align-items: center; }
-#sideleaf-wand .cd-icon { width: 1.15em; height: 1.15em; flex: 0 0 auto; }
+#sideleaf-wand { cursor: pointer; }
+#sideleaf-wand .extensionsMenuExtensionButton { display: inline-flex; align-items: center; justify-content: center; }
+#sideleaf-wand .cd-icon { width: 1em; height: 1em; flex: 0 0 auto; }
 #chat .sideleaf-archive-button { appearance: none; border: 0; background: transparent; color: inherit; cursor: pointer; padding: 0; font-size: inherit; display: inline-flex; align-items: center; justify-content: center; }
 #chat .sideleaf-archive-button .cd-icon { width: 1.15em; height: 1.15em; pointer-events: none; }
 /* Native menu icons are solid glyphs; a heavier outline keeps the same visual weight at small sizes and low opacity. */
@@ -230,7 +231,7 @@
     #sideleaf-dialog .cd-reader-bar { flex-wrap: wrap; padding: 8px 10px; gap: 6px; }
     #sideleaf-dialog .cd-reader-bar > .cd-labelled span { display: none; }
     #sideleaf-dialog .cd-reader-bar > .cd-labelled { width: 36px; padding: 0; }
-    #sideleaf-dialog .cd-reader-bar .cd-tools { flex: 1 1 100%; order: 3; flex-wrap: wrap; }
+    #sideleaf-dialog .cd-reader-bar .cd-tools { flex: 1 1 auto; flex-wrap: nowrap; }
     #sideleaf-dialog .cd-reader-bar .cd-tools .cd-spacer { display: none; }
     #sideleaf-dialog .cd-reader-bar .cd-tools .cd-version { margin-right: auto; }
     #sideleaf-dialog .cd-reading-content { padding: 14px 10px 64px; }
@@ -241,4 +242,18 @@
 @media (prefers-reduced-motion: reduce) {
     #sideleaf-dialog .cd-button, #sideleaf-dialog .cd-card { transition: none; }
     #sideleaf-dialog .cd-spinner { animation-duration: 2.4s; }
+}
+
+/* Safely framed regex screens (HTML code blocks) */
+#sideleaf-dialog .cd-frame { display: block; width: 100%; height: 160px; margin: .6em 0; border: 0; border-radius: 8px; background: transparent; }
+#sideleaf-dialog .cd-danger:hover:not(:disabled) { color: #e5534b; background: color-mix(in srgb, #e5534b 14%, transparent); }
+#sideleaf-dialog .cd-footer .cd-danger { border-color: color-mix(in srgb, #e5534b 45%, transparent); }
+/* Reader paging: top bar on wide screens, bottom bar (within thumb reach) on phones */
+#sideleaf-dialog .cd-reader-foot { display: none; }
+@media (max-width: 600px) {
+    #sideleaf-dialog .cd-reader-bar > .cd-reader-nav { display: none; }
+    #sideleaf-dialog .cd-reader-foot { display: flex; justify-content: center; padding: 8px 10px calc(8px + env(safe-area-inset-bottom)); border-top: 1px solid var(--sl-line); background: color-mix(in srgb, var(--sl-base, #1f2027) 82%, transparent); flex-shrink: 0; }
+    #sideleaf-dialog .cd-reader-foot .cd-reader-nav { width: 100%; justify-content: space-between; }
+    #sideleaf-dialog .cd-reader-foot .cd-icon-button { width: 44px; height: 40px; flex-basis: 44px; }
+    #sideleaf-dialog.cd-reading .cd-status { bottom: 72px; }
 }

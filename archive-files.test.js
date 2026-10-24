@@ -50,7 +50,7 @@ test('title/order saves reuse payloads; earlier branch keeps its own title',asyn
 });
 test('editing body saves only new edit, adding a message saves only new payload',async()=>{
     const f=fixture(),store=f.make(),d=drawer(),first=await store.save(d);
-    const changed=editPlan([],d,'a','주제','새 수정문',()=> 'r2').drawer;
+    const changed=editPlan([],d,'a','주제',{key:'edited',text:'새 수정문'},()=> 'r2').drawer;
     const second=await store.save(changed),index=f.disk.get(second.file);
     assert.deepEqual(index.entries[0].payload,f.disk.get(first.file).entries[0].payload);
     assert.deepEqual(f.disk.get(index.entries[0].edit.file).values,[{kind:'edit',text:'새 수정문'}]);

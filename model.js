@@ -91,29 +91,57 @@ export function preview(message, limit = 160) {
 
 export function readingVersions(item) {
     const versions = [];
+    // Versions changed in 별지 carry a "(수정)" mark so the edit stays visible.
+    const label = (key, text) => item.editedKeys?.includes(key) ? `${text}(수정)` : text;
     const originals = [item.message?.mes, item.message?.extra?.display_text, item.screenText];
+    // Reading copies from earlier releases stay readable; new edits change the version itself.
     if (typeof item.editedText === 'string' && !originals.includes(item.editedText)) versions.push({ key: 'edited', label: '수정본', text: item.editedText });
     const translated = item.message?.extra?.display_text;
-    if (typeof translated === 'string' && translated.trim() && translated !== item.message.mes) versions.push({ key: 'translation', label: '번역·표시문', text: translated });
+    if (typeof translated === 'string' && translated.trim() && translated !== item.message.mes) versions.push({ key: 'translation', label: label('translation', '번역·표시문'), text: translated });
     // Older captures used innerText, which omits the body of closed <details>.
     // Prefer the intact original for those records without rewriting saved data.
     const legacyDetails = /<details\b/i.test(String(item.message?.mes ?? '')) && item.screenTextComplete !== true;
     const screen = item.screenText?.trim() && !versions.some(v => v.text === item.screenText)
-        ? { key:'screen', label:'보관 당시 화면', text:item.screenText } : null;
+        ? { key:'screen', label:label('screen', '보관 당시 화면'), text:item.screenText } : null;
     if (screen && !legacyDetails) versions.push(screen);
-    versions.push({ key: 'original', label: '원문', text: String(item.message?.mes ?? '') });
+    versions.push({ key: 'original', label: label('original', '원문'), text: String(item.message?.mes ?? '') });
     if (screen && legacyDetails) versions.push(screen);
     return versions;
 }
 
-export function editPlan(chat, drawer, itemId, title, editedText, idFactory) {
+// `change` replaces the version being read ({key, text}); without it only the title changes.
+// Editing the original rewrites the archived message itself, so a restore brings the edit back.
+export function editPlan(chat, drawer, itemId, title, change, idFactory, now = Date.now()) {
     if (!drawer.items.some(item => item.id === itemId)) throw new Error('보관 항목이 변경되었습니다. 다시 열어주세요.');
     const update = item => {
         const next = { ...item, title: String(title).trim().slice(0, 160) };
-        // Title-only edits leave any existing edited body untouched.
-        if (editedText !== undefined) Object.assign(next, { editedText: String(editedText), editedAt: Date.now() });
-        return next;
+        if (!change) return next;
+        const text = String(change.text);
+        if (change.key === 'original' || change.key === 'translation') {
+            // A new message object, so the archive stores a new payload and earlier saves stay intact.
+            const message = structuredClone(item.message);
+            if (change.key === 'original') {
+                message.mes = text;
+                // Keep the selected swipe in step with the message text, as SillyTavern does.
+                if (Array.isArray(message.swipes) && Number.isInteger(message.swipe_id) && message.swipe_id in message.swipes) message.swipes[message.swipe_id] = text;
+            } else message.extra = { ...message.extra, display_text: text };
+            next.message = message;
+        } else if (change.key === 'screen') {
+            Object.assign(next, { screenText: text, screenTextComplete: true });
+        } else if (change.key === 'edited') {
+            next.editedText = text;
+        } else throw new Error('수정할 본문을 다시 골라주세요.');
+        return { ...next, editedAt: now, editedKeys: [...new Set([...(item.editedKeys || []), change.key])] };
     };
     const items = drawer.items.map(item => item.id === itemId ? update(item) : item);
     return { chat: chat.slice(), drawer: { ...drawer, revision: idFactory(), items } };
+}
+
+export function deletePlan(chat, drawer, ids, idFactory) {
+    const picked = new Set(ids);
+    const items = drawer.items.filter(item => !picked.has(item.id));
+    if (!picked.size || drawer.items.length - items.length !== picked.size) throw new Error('보관 항목이 바뀌었습니다. 다시 선택해주세요.');
+    const next = { ...drawer, revision: idFactory(), items };
+    if (Array.isArray(drawer.order)) next.order = drawer.order.filter(key => !picked.has(key));
+    return { chat: chat.slice(), drawer: next, affected: drawer.items.filter(item => picked.has(item.id)) };
 }
