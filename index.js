@@ -538,8 +538,36 @@ function updateSelection() {
 }
 
 // Archived bodies are formatted like the chat (markdown, quotes, regex display scripts),
-// then everything that could run code, embed frames, submit forms or restyle the page is dropped.
-const BLOCKED_TAGS = ['script', 'style', 'link', 'meta', 'base', 'iframe', 'frame', 'frameset', 'object', 'embed', 'form', 'input', 'button', 'textarea', 'select', 'option', 'template', 'noscript', 'audio', 'video', 'source', 'track', 'canvas'];
+// then everything that could run code, embed frames or submit forms is dropped. Message <style>
+// blocks stay but are rewritten to apply only inside the reading box (see scopeStyles).
+const BLOCKED_TAGS = ['script', 'link', 'meta', 'base', 'iframe', 'frame', 'frameset', 'object', 'embed', 'form', 'input', 'button', 'textarea', 'select', 'option', 'template', 'noscript', 'audio', 'video', 'source', 'track', 'canvas'];
+const STYLE_SCOPE = '#sideleaf-dialog .cd-rich';
+// SillyTavern scopes message CSS to `.mes_text`; the same rules are re-scoped to 별지's box so they
+// style archived content exactly as in the chat without reaching the page, the chat or the theme.
+function scopeRule(rule) {
+    if (rule instanceof CSSStyleRule) {
+        const selectors = rule.selectorText.split(/,(?![^(]*\))/).map(part => {
+            const rest = part.trim().replace(/^\.mes_text\b\s*/, '').replace(/^(?:html|body|:root)\b\s*/, '');
+            return rest ? `${STYLE_SCOPE} ${rest}` : STYLE_SCOPE;
+        });
+        return `${selectors.join(', ')} { ${rule.style.cssText} }`;
+    }
+    if (rule instanceof CSSMediaRule) return `@media ${rule.conditionText} { ${[...rule.cssRules].map(scopeRule).join(' ')} }`;
+    if (rule instanceof CSSSupportsRule) return `@supports ${rule.conditionText} { ${[...rule.cssRules].map(scopeRule).join(' ')} }`;
+    if (rule instanceof CSSKeyframesRule || rule instanceof CSSFontFaceRule) return rule.cssText;
+    return ''; // @import, @page and anything unknown are dropped
+}
+function scopeStyles(box) {
+    for (const style of box.querySelectorAll('style')) {
+        try {
+            const sheet = new CSSStyleSheet();
+            sheet.replaceSync(style.textContent);
+            style.textContent = [...sheet.cssRules].map(scopeRule).join('\n');
+        } catch {
+            style.remove();
+        }
+    }
+}
 // Attributes that could point at page controls behind the dialog are dropped as well.
 const BLOCKED_ATTRS = ['id', 'name', 'for', 'form', 'formaction', 'srcdoc', 'popovertarget', 'popovertargetaction'];
 function contentBlock(item, version) {
@@ -551,7 +579,8 @@ function contentBlock(item, version) {
     try {
         const message = item.message;
         const html = ctx.messageFormatting(version.raw, message.name ?? '', Boolean(message.is_system), Boolean(message.is_user), undefined);
-        fragment = purify.sanitize(html, { RETURN_DOM_FRAGMENT: true, FORBID_TAGS: BLOCKED_TAGS, FORBID_ATTR: BLOCKED_ATTRS });
+        // FORCE_BODY keeps a leading <style> block (the parser would otherwise hoist and drop it).
+        fragment = purify.sanitize(html, { RETURN_DOM_FRAGMENT: true, FORCE_BODY: true, FORBID_TAGS: BLOCKED_TAGS, FORBID_ATTR: BLOCKED_ATTRS });
     } catch (error) {
         console.warn('[Sideleaf] Falling back to plain text', error);
         return textBlock(version.text);
@@ -560,12 +589,15 @@ function contentBlock(item, version) {
     fragment.querySelectorAll('details').forEach(node => { node.open = true; });
     // Links open in a new tab so the SillyTavern page (and any unsaved state) stays put.
     fragment.querySelectorAll('a[href]').forEach(link => { link.target = '_blank'; link.rel = 'noopener noreferrer'; });
-    // Status windows from regex scripts arrive as HTML code blocks; show them as screens, not source.
-    fragment.querySelectorAll('pre > code').forEach(code => {
-        if (FRONTEND.test(code.textContent)) code.parentElement.replaceWith(framedHtml(code.textContent));
-    });
     const box = el('div', 'cd-rich');
     box.append(fragment);
+    scopeStyles(box);
+    // Status windows from regex scripts arrive as HTML code blocks; show them as screens, not source.
+    // Frames are built only after the sanitised nodes belong to this document: a frame adopted from
+    // DOMPurify's working document never runs its size script.
+    box.querySelectorAll('pre > code').forEach(code => {
+        if (FRONTEND.test(code.textContent)) code.parentElement.replaceWith(framedHtml(code.textContent));
+    });
     return box;
 }
 
@@ -576,13 +608,16 @@ const FRONTEND = /<\s*(?:!doctype|html|head|body|style|div|section|article|table
 // external script. The frame reports only its own height back to 별지.
 const FRAME_CSP = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline' *; img-src * data: blob:; font-src * data:; media-src * data: blob:";
 const FRAME_HEAD = `<meta http-equiv="Content-Security-Policy" content="${FRAME_CSP}"><style>html,body{margin:0}</style>`;
-const FRAME_SIZE = `<script>(function(){var last=0;function send(){var h=Math.ceil(Math.max(document.body?document.body.scrollHeight:0,document.documentElement.scrollHeight));if(Math.abs(h-last)>1){last=h;parent.postMessage({sideleafFrameHeight:h},'*');}}addEventListener('load',send);if(window.ResizeObserver)new ResizeObserver(send).observe(document.documentElement);setTimeout(send,300);})();<\/script>`;
+// Reports at fixed moments as well as on resize: a single early report can be lost while the frame starts up.
+const FRAME_SIZE = `<script>(function(){function send(){var b=document.body,h=Math.ceil(Math.max(b?b.scrollHeight:0,document.documentElement.scrollHeight));parent.postMessage({sideleafFrameHeight:h},'*');}addEventListener('DOMContentLoaded',send);addEventListener('load',function(){send();setTimeout(send,300);setTimeout(send,1000);});if(window.ResizeObserver)new ResizeObserver(send).observe(document.documentElement);})();<\/script>`;
 const frames = new WeakMap();
 addEventListener('message', event => {
     const height = event.data?.sideleafFrameHeight;
     if (typeof height !== 'number' || !event.source) return;
     for (const frame of document.querySelectorAll('#sideleaf-dialog .cd-frame')) {
-        if (frame.contentWindow === event.source && frames.has(frame)) frame.style.height = `${Math.min(Math.max(height, 16), 4000)}px`;
+        if (frame.contentWindow !== event.source || !frames.has(frame)) continue;
+        const next = `${Math.min(Math.max(height, 16), 4000)}px`;
+        if (frame.style.height !== next) frame.style.height = next;
     }
 });
 function framedHtml(html) {
