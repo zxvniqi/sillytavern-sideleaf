@@ -322,6 +322,7 @@ function downloadRecovery() {
 
 function onCancel(event) {
     event.preventDefault();
+    if (!dialog) return;
     const jump = dialog.querySelector('.cd-jump');
     if (jump) { jump.remove(); dialog.querySelector('.cd-shade')?.remove(); return; }
     if (reader && !busy) { exitReader(); return; }
@@ -959,8 +960,10 @@ function addMessageButtons() {
         if (message.querySelector('.sideleaf-archive-button')) continue;
         const target = message.querySelector('.extraMesButtons, .mes_buttons');
         if (!target) continue;
-        const entry = el('button', 'sideleaf-archive-button mes_button'); entry.append(icon('star'));
-        entry.type = 'button'; entry.title = '별지에 보관'; entry.setAttribute('aria-label', '별지에 보관');
+        // Same shape as SillyTavern's own message buttons (a Font Awesome glyph), so themes restyle it alike.
+        const entry = el('div', 'sideleaf-archive-button mes_button fa-solid fa-star interactable');
+        entry.tabIndex = 0; entry.setAttribute('role', 'button'); entry.title = '별지에 보관'; entry.setAttribute('aria-label', '별지에 보관');
+        entry.addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); archiveFromMessage(event); } });
         // First in the row, so it sits at the left end next to the other message actions.
         entry.addEventListener('click', archiveFromMessage); target.prepend(entry);
     }
@@ -974,7 +977,9 @@ function initialize() {
     const container = el('div', 'extension_container interactable');
     const entry = el('div', 'list-group-item flex-container flexGap5 interactable');
     entry.id = 'sideleaf-wand'; entry.tabIndex = 0; entry.setAttribute('role', 'listitem'); entry.title = '별지 보관함 열기';
-    const glyph = el('div', 'extensionsMenuExtensionButton fa-fw'); glyph.append(icon('star'));
+    // SillyTavern's bundled Font Awesome star, like every other entry: menu tweakers and themes
+    // recognise and position font icons, but not custom SVGs.
+    const glyph = el('div', 'fa-fw fa-solid fa-star extensionsMenuExtensionButton');
     entry.append(glyph, el('span', '', '별지'));
     entry.addEventListener('click', () => open());
     entry.addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); open(); } });

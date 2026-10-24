@@ -2,12 +2,6 @@
 
 /* Entry points outside the dialog */
 #sideleaf-wand { cursor: pointer; }
-#sideleaf-wand .extensionsMenuExtensionButton { display: inline-flex; align-items: center; justify-content: center; }
-#sideleaf-wand .cd-icon { width: 1em; height: 1em; flex: 0 0 auto; }
-#chat .sideleaf-archive-button { appearance: none; border: 0; background: transparent; color: inherit; cursor: pointer; padding: 0; font-size: inherit; display: inline-flex; align-items: center; justify-content: center; }
-#chat .sideleaf-archive-button .cd-icon { width: 1.15em; height: 1.15em; pointer-events: none; }
-/* Native menu icons are solid glyphs; a heavier outline keeps the same visual weight at small sizes and low opacity. */
-#chat .sideleaf-archive-button .cd-icon:not(.cd-filled) path, #sideleaf-wand .cd-icon:not(.cd-filled) path { stroke-width: 2.4; }
 
 /* Dialog shell: colours come from the live chat, surfaces are tints of its text colour. */
 #sideleaf-dialog {
