@@ -1049,7 +1049,8 @@ function initialize() {
     installQrSource(context);
     const on = (type, handler) => { if (ctx.eventTypes[type]) ctx.eventSource.on(ctx.eventTypes[type], handler); };
     let buttonsQueued = false;
-    const queueButtons = () => { if (buttonsQueued) return; buttonsQueued = true; requestAnimationFrame(() => { buttonsQueued = false; addMessageButtons(); }); };
+    // A short timer instead of requestAnimationFrame: rAF stalls while the tab is in the background.
+    const queueButtons = () => { if (buttonsQueued) return; buttonsQueued = true; setTimeout(() => { buttonsQueued = false; addMessageButtons(); }, 16); };
     for (const event of ['CHAT_CHANGED', 'CHARACTER_MESSAGE_RENDERED', 'USER_MESSAGE_RENDERED', 'MESSAGE_UPDATED', 'MESSAGE_SWIPED', 'MORE_MESSAGES_LOADED']) on(event, queueButtons);
     addMessageButtons();
     // Preview/dry-run generation also emits STARTED, sometimes without ENDED.

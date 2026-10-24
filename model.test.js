@@ -136,6 +136,6 @@ test('legacy closed-details capture cannot hide the intact original body', () =>
     assert.deepEqual(readingVersions(item).map(x=>x.key),['original','screen']);
     assert.ok(readingVersions(item)[0].text.includes('Complete body'));
     const full={...item,screenText:'Heading\nComplete body',screenTextComplete:true};
-    assert.equal(readingVersions(full)[0].key,'screen');
+    assert.deepEqual(readingVersions(full).map(x=>x.key),['original','screen']);
     assert.equal(readingVersions({...item,message:message(item.message.mes,{display_text:'Full translated body'})})[0].key,'translation');
 });

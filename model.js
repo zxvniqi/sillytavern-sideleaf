@@ -85,8 +85,15 @@ export function chatIdentity(context) {
     return avatar ? JSON.stringify(['character', avatar, context.chatId]) : null;
 }
 
+// A readable one-line excerpt: code blocks, tags and markdown markers are dropped.
 export function preview(message, limit = 160) {
-    return String(message?.mes ?? '').slice(0, limit * 3).replace(/\s+/g, ' ').slice(0, limit) || '(본문 없는 메시지)';
+    const text = String(message?.mes ?? '').slice(0, limit * 12)
+        .replace(/```[\s\S]*?(?:```|$)/g, ' ')
+        .replace(/<[^>]*>/g, ' ')
+        .replace(/^[ \t]*(?:#{1,6}|>|[-*+])[ \t]+/gm, '')
+        .replace(/[*_~`]+/g, '')
+        .replace(/\s+/g, ' ').trim();
+    return text.slice(0, limit) || '(본문 없는 메시지)';
 }
 
 export function readingVersions(item) {
@@ -98,14 +105,10 @@ export function readingVersions(item) {
     if (typeof item.editedText === 'string' && !originals.includes(item.editedText)) versions.push({ key: 'edited', label: '수정본', text: item.editedText });
     const translated = item.message?.extra?.display_text;
     if (typeof translated === 'string' && translated.trim() && translated !== item.message.mes) versions.push({ key: 'translation', label: label('translation', '번역·표시문'), text: translated });
-    // Older captures used innerText, which omits the body of closed <details>.
-    // Prefer the intact original for those records without rewriting saved data.
-    const legacyDetails = /<details\b/i.test(String(item.message?.mes ?? '')) && item.screenTextComplete !== true;
-    const screen = item.screenText?.trim() && !versions.some(v => v.text === item.screenText)
-        ? { key:'screen', label:label('screen', '보관 당시 화면'), text:item.screenText } : null;
-    if (screen && !legacyDetails) versions.push(screen);
+    // The original is rendered like the chat (formatting, regex screens), so it leads; the plain-text
+    // screen capture stays available for display-only changes such as on-screen translations.
     versions.push({ key: 'original', label: label('original', '원문'), text: String(item.message?.mes ?? '') });
-    if (screen && legacyDetails) versions.push(screen);
+    if (item.screenText?.trim() && !versions.some(v => v.text === item.screenText)) versions.push({ key:'screen', label:label('screen', '보관 당시 화면'), text:item.screenText });
     return versions;
 }
 
