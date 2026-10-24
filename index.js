@@ -6,9 +6,12 @@ import { ArchiveFiles, portableChat } from './archive-files.js';
 
 const context = () => SillyTavern.getContext();
 // Older SillyTavern builds may not export isGenerating; a failed static import would stop the whole
-// extension from loading, so read it dynamically and fall back to the visible Stop button.
-const core = await import('../../../../script.js').catch(() => ({}));
-const isGenerating = typeof core.isGenerating === 'function' ? core.isGenerating : () => {
+// extension from loading. The core module is still loading while extensions load, so it must not be
+// awaited here (that deadlocks startup); until it resolves, the visible Stop button is the signal.
+let coreIsGenerating = null;
+import('../../../../script.js').then(core => { if (typeof core.isGenerating === 'function') coreIsGenerating = core.isGenerating; }, () => {});
+const isGenerating = () => {
+    if (coreIsGenerating) return coreIsGenerating();
     const stop = document.getElementById('mes_stop');
     return Boolean(stop && getComputedStyle(stop).display !== 'none');
 };
