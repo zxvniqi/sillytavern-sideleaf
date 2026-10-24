@@ -251,3 +251,11 @@
     #sideleaf-dialog .cd-reader-foot .cd-icon-button { width: 44px; height: 40px; flex-basis: 44px; }
     #sideleaf-dialog.cd-reading .cd-status { bottom: 72px; }
 }
+
+/* Inside the search pill and select pill the frame belongs to 별지; themes that style every field
+   (some with id-level !important rules) would otherwise draw a second box inside. */
+#sideleaf-dialog#sideleaf-dialog .cd-search-field .cd-search,
+#sideleaf-dialog#sideleaf-dialog .cd-select select {
+    background: transparent !important; background-image: none !important;
+    border: 0 !important; box-shadow: none !important; outline: none !important; min-height: 0;
+}
