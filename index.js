@@ -196,7 +196,7 @@ function makePlan(kind, chat, drawer, edit) {
         case 'edit': return editPlan(chat, drawer, edit.id, edit.title, edit.change, id);
         case 'delete': return deletePlan(chat, drawer, edit?.ids ?? [...selected], id);
         case 'archive': return archivePlan(chat, drawer, [...selected], id);
-        default: return restorePlan(chat, drawer, [...selected], id);
+        default: return restorePlan(chat, drawer, [...selected], id, edit?.place === 'original' ? 'original' : 'end');
     }
 }
 
@@ -267,7 +267,7 @@ async function commit(kind, edit = null) {
 const SAVED_NOTES = {
     migrate: '분리 저장으로 전환했습니다. 다른 서버로 옮길 때는 통합 백업을 사용해주세요.',
     archive: '별지에 보관했습니다.',
-    restore: '채팅 끝에 복원했습니다.',
+    restore: '대화로 복원했습니다.',
     edit: '변경 사항을 저장했습니다.',
     order: '변경 사항을 저장했습니다.',
     delete: '별지에서 삭제했습니다.',
@@ -453,7 +453,7 @@ function render() {
         const hint = el('p', 'cd-hint', view === 'select'
             ? '고른 메시지는 대화 화면과 이후 AI 대화 기록에서 빠지고 별지에 보관됩니다.'
             : ctx.chatMetadata?.[KEY]?.version === 2
-                ? '분리 저장 중 · 일반 채팅 내보내기에는 별지 본문이 빠지니, 다른 서버로 옮길 때는 통합 백업을 쓰세요. 복원은 채팅 끝에 추가됩니다.'
+                ? '분리 저장 중 · 일반 채팅 내보내기에는 별지 본문이 빠지니, 다른 서버로 옮길 때는 통합 백업을 쓰세요. 복원은 원래 자리나 채팅 끝 중에서 고를 수 있습니다.'
                 : '채팅 파일 안에 저장 중 · 분리 저장으로 바꾸면 평소 채팅 로딩이 가벼워집니다. 보관·수정할 때도 자동으로 바뀝니다.');
         controls.append(bulk, hint);
     }
@@ -498,18 +498,20 @@ function render() {
         parts.push(footer);
     } else if (selecting) {
         const count = el('span', 'cd-selected');
-        const action = iconButton(view === 'archive' ? 'restore' : 'star', view === 'archive' ? '선택한 원본 메시지를 현재 채팅 끝에 추가' : '선택한 메시지를 대화에서 빼서 별지에 보관',
-            () => commit(view === 'archive' ? 'restore' : 'archive'), view === 'archive' ? '채팅 끝에 복원' : '별지에 보관');
+        const action = view === 'archive'
+            ? iconButton('restore', '보관하기 전 자리에 다시 넣기 (그 사이 대화가 줄었으면 끝에)', () => commit('restore', {place:'original'}), '원래 자리로')
+            : iconButton('star', '선택한 메시지를 대화에서 빼서 별지에 보관', () => commit('archive'), '별지에 보관');
         action.classList.add('cd-primary');
         footer.append(count, el('span', 'cd-spacer'));
-        let remove = null;
+        let remove = null, toEnd = null;
         if (view === 'archive') {
             remove = iconButton('trash', '선택한 항목을 별지에서 삭제', () => removeItems([...selected]), '삭제');
             remove.classList.add('cd-danger');
-            footer.append(remove);
+            toEnd = iconButton('down', '선택한 메시지를 현재 대화 맨 끝에 붙이기', () => commit('restore', {place:'end'}), '채팅 끝에');
+            footer.append(remove, toEnd);
         }
         footer.append(action);
-        selectionUi = { count, action, remove, none, generating };
+        selectionUi = { count, action, toEnd, remove, none, generating };
         parts.push(footer);
     }
     parts.push(status);
@@ -533,6 +535,7 @@ function updateSelection() {
     const locked = isLocked();
     selectionUi.count.textContent = selected.size ? `${selected.size}개 선택됨` : '항목을 골라주세요';
     selectionUi.action.disabled = !selected.size || locked || !openedChat || selectionUi.generating;
+    if (selectionUi.toEnd) selectionUi.toEnd.disabled = selectionUi.action.disabled;
     if (selectionUi.none) selectionUi.none.disabled = !selected.size || locked;
     if (selectionUi.remove) selectionUi.remove.disabled = !selected.size || locked;
 }

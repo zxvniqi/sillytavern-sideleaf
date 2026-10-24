@@ -35,6 +35,17 @@ test('editing replaces the version being read; restore brings the edited message
     assert.throws(() => editPlan(archived.chat, archived.drawer, itemId, '', {key:'unknown', text:'x'}, id));
 });
 
+test('restoring to original positions rebuilds the order across several archive batches', () => {
+    const chat = ['a','b','c','d','e','f'].map(x => message(x));
+    const first = archivePlan(chat, readDrawer({}), [1, 3], id, 100);          // b, d
+    const second = archivePlan(first.chat, first.drawer, [2], id, 200);        // e (index 2 after removal)
+    const ids = second.drawer.items.map(x => x.id);
+    assert.deepEqual(restorePlan(second.chat, second.drawer, ids, id, 'original').chat.map(x => x.mes), ['a','b','c','d','e','f']);
+    assert.deepEqual(restorePlan(second.chat, second.drawer, ids, id).chat.map(x => x.mes), ['a','c','f','b','d','e']);
+    const shortened = restorePlan([message('only')], second.drawer, [ids[2]], id, 'original').chat.map(x => x.mes);
+    assert.deepEqual(shortened, ['only','e']);
+});
+
 test('deleting removes only the chosen items and their manual order entries', () => {
     const p = archivePlan(['keep','one','two'].map(x=>message(x)), readDrawer({}), [1,2], id);
     const ids = p.drawer.items.map(x=>x.id);

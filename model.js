@@ -66,13 +66,24 @@ export function reorderPlan(chat, drawer, order, idFactory) {
     return { chat: chat.slice(), drawer: {...drawer, order:[...order], revision:idFactory()} };
 }
 
-export function restorePlan(chat, drawer, ids, idFactory) {
+// place 'end' appends; 'original' puts each message back at the index it had when archived.
+// Archives are undone newest-first (each batch ascending), which rebuilds the exact order as long as
+// the chat was not edited in between; positions past the current end fall back to the end.
+export function restorePlan(chat, drawer, ids, idFactory, place = 'end') {
     const picked = new Set(ids);
     const restored = drawer.items.filter(item => picked.has(item.id));
     if (!restored.length || restored.length !== picked.size) throw new Error('보관 항목이 바뀌었습니다. 다시 선택해주세요.');
-    // Explicitly append: guessing a former index after other edits can corrupt story order.
+    const next = chat.slice();
+    if (place === 'original') {
+        const order = restored.map((item, index) => ({ item, index }))
+            .sort((a, b) => (b.item.archivedAt - a.item.archivedAt) || (a.item.originalIndex - b.item.originalIndex) || a.index - b.index);
+        for (const { item } of order) {
+            const at = Number.isInteger(item.originalIndex) && item.originalIndex >= 0 ? Math.min(item.originalIndex, next.length) : next.length;
+            next.splice(at, 0, structuredClone(item.message));
+        }
+    } else next.push(...restored.map(item => structuredClone(item.message)));
     return {
-        chat: [...chat, ...restored.map(item => structuredClone(item.message))],
+        chat: next,
         drawer: { ...drawer, revision: idFactory(), items: drawer.items.filter(item => !picked.has(item.id)) },
         affected: restored,
     };
