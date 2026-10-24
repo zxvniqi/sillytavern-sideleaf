@@ -239,7 +239,7 @@
 }
 
 /* Safely framed regex screens (HTML code blocks) */
-#sideleaf-dialog .cd-frame { display: block; width: 100%; height: 160px; margin: .6em 0; border: 0; border-radius: 8px; background: transparent; }
+#sideleaf-dialog .cd-frame { display: block; width: 100%; margin: .4em 0; border: 0; background: transparent; }
 #sideleaf-dialog .cd-danger:hover:not(:disabled) { color: #e5534b; background: color-mix(in srgb, #e5534b 14%, transparent); }
 #sideleaf-dialog .cd-footer .cd-danger { border-color: color-mix(in srgb, #e5534b 45%, transparent); }
 /* Reader paging: top bar on wide screens, bottom bar (within thumb reach) on phones */

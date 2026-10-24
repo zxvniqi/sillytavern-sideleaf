@@ -570,18 +570,39 @@ function contentBlock(item, version) {
 }
 
 const FRONTEND = /<\s*(?:!doctype|html|head|body|style|div|section|article|table|span|img|p)\b/i;
+// Status windows often fill in their values with a small script, so scripts may run, but only inside
+// an isolated frame: no allow-same-origin (an opaque origin with no access to SillyTavern, its storage
+// or cookies), no top navigation, popups or forms, and a CSP that blocks every network request and
+// external script. The frame reports only its own height back to 별지.
+const FRAME_CSP = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline' *; img-src * data: blob:; font-src * data:; media-src * data: blob:";
+const FRAME_HEAD = `<meta http-equiv="Content-Security-Policy" content="${FRAME_CSP}"><style>html,body{margin:0}</style>`;
+const FRAME_SIZE = `<script>(function(){var last=0;function send(){var h=Math.ceil(Math.max(document.body?document.body.scrollHeight:0,document.documentElement.scrollHeight));if(Math.abs(h-last)>1){last=h;parent.postMessage({sideleafFrameHeight:h},'*');}}addEventListener('load',send);if(window.ResizeObserver)new ResizeObserver(send).observe(document.documentElement);setTimeout(send,300);})();<\/script>`;
+const frames = new WeakMap();
+addEventListener('message', event => {
+    const height = event.data?.sideleafFrameHeight;
+    if (typeof height !== 'number' || !event.source) return;
+    for (const frame of document.querySelectorAll('#sideleaf-dialog .cd-frame')) {
+        if (frame.contentWindow === event.source && frames.has(frame)) frame.style.height = `${Math.min(Math.max(height, 16), 4000)}px`;
+    }
+});
 function framedHtml(html) {
     const frame = el('iframe', 'cd-frame');
-    // No allow-scripts: nothing in the block can run. Same-origin only lets 별지 read its height.
-    frame.setAttribute('sandbox', 'allow-same-origin');
+    frame.setAttribute('sandbox', 'allow-scripts');
     frame.setAttribute('referrerpolicy', 'no-referrer');
-    frame.title = '정규식 화면 (스크립트 없이 표시)';
-    frame.srcdoc = html;
-    frame.addEventListener('load', () => {
-        try { frame.style.height = `${Math.min(frame.contentDocument.documentElement.scrollHeight, 4000)}px`; }
-        catch { /* keep the CSS default height */ }
-    });
+    frame.title = '정규식 화면 (분리된 영역에서 표시)';
+    // The frame starts tiny so documents styled with height:100% measure their content, not the frame.
+    frame.style.height = '1px';
+    frame.srcdoc = frameDocument(html);
+    frames.set(frame, true);
     return frame;
+}
+// The policy goes into <head> ahead of any script, and the document keeps its own doctype (standards mode).
+// Meta refresh is dropped: a navigated frame would leave the policy behind.
+function frameDocument(html) {
+    const source = html.replace(/<meta\b[^>]*http-equiv\s*=\s*["']?refresh[^>]*>/gi, '');
+    if (/<head\b[^>]*>/i.test(source)) return source.replace(/<head\b[^>]*>/i, tag => tag + FRAME_HEAD) + FRAME_SIZE;
+    if (/<html\b[^>]*>/i.test(source)) return source.replace(/<html\b[^>]*>/i, tag => `${tag}<head>${FRAME_HEAD}</head>`) + FRAME_SIZE;
+    return `<!doctype html><head>${FRAME_HEAD}</head>${source}${FRAME_SIZE}`;
 }
 
 // Themes often style quotes, emphasis and headings only inside #chat. A hidden sample message is
