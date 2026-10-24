@@ -654,6 +654,9 @@ function syncChatStyles() {
     probe.setAttribute('is_user', 'false'); probe.setAttribute('aria-hidden', 'true'); probe.style.display = 'none';
     const samples = SAMPLE_TAGS.map(tag => { const node = el(tag, '', 'x'); text.append(node); return [` ${tag}`, node, text]; });
     const quoted = el('em', '', 'x'); samples[0][1].append(quoted); samples.push([' q em', quoted, samples[0][1]]);
+    // Code blocks: the block itself and its highlighted code (light text usually sits on a dark block).
+    const pre = el('pre'), preCode = el('code', 'hljs', 'x'); pre.append(preCode); text.append(pre);
+    samples.push([' pre', pre, text], [' pre code', preCode, pre]);
     // Prepended so `:last-child` rules never touch the real last message during the measurement.
     block.append(text); probe.append(block); chat.prepend(probe);
     const style = el('style'); style.id = 'sideleaf-chat-style'; document.head.append(style);
@@ -864,9 +867,11 @@ function exitReader() {
 function showReader(item) {
     clearTimeout(searchTimer);
     const revision = currentDrawer().revision;
-    if (!reader || readerRevision !== revision) {
+    // Rebuild whenever the item is missing too, so paging never shows "0 / 0".
+    if (!reader || readerRevision !== revision || !readerItems.some(x => x.key === item.key)) {
         readerItems = archiveItems().filter(matchesSearch);
-        if (!readerItems.some(x=>x.key===item.key)) readerItems=archiveItems();
+        if (!readerItems.some(x => x.key === item.key)) readerItems = archiveItems();
+        if (!readerItems.some(x => x.key === item.key)) readerItems = [item];
         readerRevision = revision;
     }
     reader = true;

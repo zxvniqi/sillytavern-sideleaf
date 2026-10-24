@@ -91,7 +91,7 @@ export function preview(message, limit = 160) {
         .replace(/```[\s\S]*?(?:```|$)/g, ' ')
         .replace(/<[^>]*>/g, ' ')
         .replace(/^[ \t]*(?:#{1,6}|>|[-*+])[ \t]+/gm, '')
-        .replace(/[*_~`]+/g, '')
+        .replace(/[*~`]+/g, '')
         .replace(/\s+/g, ' ').trim();
     return text.slice(0, limit) || '(본문 없는 메시지)';
 }
