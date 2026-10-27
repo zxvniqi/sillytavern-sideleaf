@@ -633,9 +633,10 @@ const FRONTEND = /<\s*(?:!doctype|html|head|body|style|div|section|article|table
 const FRAME_CSP = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline' *; img-src * data: blob:; font-src * data:; media-src * data: blob:";
 const FRAME_HEAD = `<meta http-equiv="Content-Security-Policy" content="${FRAME_CSP}"><style>html,body{margin:0}</style>`;
 // Reports at fixed moments as well as on changes: a single early report can be lost while the frame starts up.
-// The height is the extent of what is actually drawn (a range over the body), not scrollHeight, which never
-// drops below the frame's current height and so would keep the space of a section folded again.
-const FRAME_SIZE = `<script>(function(){var t;function measure(){var b=document.body;if(!b)return 0;var r=document.createRange();r.selectNodeContents(b);var box=r.getBoundingClientRect(),s=getComputedStyle(b),bottom=box.height?box.bottom+scrollY+parseFloat(s.paddingBottom)+parseFloat(s.borderBottomWidth)+parseFloat(s.marginBottom):0;return Math.ceil(bottom||b.scrollHeight);}function send(){clearTimeout(t);parent.postMessage({sideleafFrameHeight:measure()},'*');}function soon(){clearTimeout(t);t=setTimeout(send,30);}addEventListener('DOMContentLoaded',send);addEventListener('load',function(){send();setTimeout(send,300);setTimeout(send,1000);});addEventListener('toggle',soon,true);addEventListener('click',function(){soon();setTimeout(send,400);},true);addEventListener('transitionend',soon,true);if(window.ResizeObserver){var o=new ResizeObserver(soon);o.observe(document.documentElement);if(document.body)o.observe(document.body);}if(window.MutationObserver)new MutationObserver(soon).observe(document.documentElement,{subtree:true,childList:true,attributes:true,characterData:true});})();<\/script>`;
+// The height is the bottom of what is actually visible, not scrollHeight, which never drops below the frame's
+// current height and so would keep the space of a section folded again. Content cut off by a folded
+// (overflow-clipped) box does not count.
+const FRAME_SIZE = `<script>(function(){var t;function walk(node,clip,depth,state){for(var c=node.firstElementChild;c&&state.n<4000;c=c.nextElementSibling){state.n++;var s=getComputedStyle(c);if(s.display==='none')continue;var r=c.getBoundingClientRect();if(s.display!=='contents'&&(r.width||r.height)&&s.visibility!=='hidden'){var m=s.position==='absolute'||s.position==='fixed'?0:parseFloat(s.marginBottom)||0;state.bottom=Math.max(state.bottom,Math.min(r.bottom+m,clip));}var o=s.overflowY;var inner=s.display!=='contents'&&o!=='visible'?Math.min(clip,r.bottom):clip;if(depth<60&&r.top<inner)walk(c,inner,depth+1,state);}}function measure(){var b=document.body;if(!b)return 0;var state={bottom:0,n:0};walk(b,Infinity,0,state);var s=getComputedStyle(b);var bottom=state.bottom?state.bottom+scrollY+parseFloat(s.paddingBottom)+parseFloat(s.borderBottomWidth):0;return Math.ceil(bottom||b.scrollHeight);}function send(){clearTimeout(t);parent.postMessage({sideleafFrameHeight:measure()},'*');}function soon(){clearTimeout(t);t=setTimeout(send,30);}addEventListener('DOMContentLoaded',send);addEventListener('load',function(){send();setTimeout(send,300);setTimeout(send,1000);});addEventListener('toggle',soon,true);addEventListener('click',function(){soon();setTimeout(send,400);},true);addEventListener('transitionend',soon,true);if(window.ResizeObserver){var o=new ResizeObserver(soon);o.observe(document.documentElement);if(document.body)o.observe(document.body);}if(window.MutationObserver)new MutationObserver(soon).observe(document.documentElement,{subtree:true,childList:true,attributes:true,characterData:true});})();<\/script>`;
 const frames = new WeakMap();
 addEventListener('message', event => {
     const height = event.data?.sideleafFrameHeight;
@@ -674,8 +675,9 @@ function frameDocument(html) {
 const MIRROR_NAMES = [[/#chat(?![\w-])/g, '.cd-mirror'], [/\.mes_text(?![\w-])/g, '.cd-mtext'], [/\.mes_block(?![\w-])/g, '.cd-mblock'], [/\.mes(?![\w-])/g, '.cd-mes']];
 const MIRROR_TOUCH = /#chat(?![\w-])|\.mes(?:_text|_block)?(?![\w-])/;
 const MIRROR_FRAME = /\.cd-(?:mirror|mes|mblock)(?![\w-])/;
-// Rules aimed at the text box itself keep only text styling; its box (size, padding, background) stays 별지's.
-const TEXT_PROP = /^(?:--|color$|font|line-height$|letter-spacing$|word-spacing$|text-|-webkit-text-|white-space$|overflow-wrap$|word-break$|hyphens$|tab-size$|quotes$|direction$|unicode-bidi$)/;
+// Rules aimed at the text box itself bring its look (text, background, borders, padding, ornaments) but not
+// its layout: size, position and overflow stay 별지's, so a theme cannot push the body out of its card.
+const LAYOUT_PROP = /^(?:width|min-width|max-width|height|min-height|max-height|margin|display|position|top|right|bottom|left|inset|float|clear|flex|grid|order|align-self|justify-self|place-self|overflow|contain|transform|translate|rotate|scale|z-index|zoom|content-visibility|container|resize)/;
 function mirrored(box, message) {
     const chat = el('div', 'cd-mirror'), mes = el('div', 'cd-mes'), block = el('div', 'cd-mblock');
     box.classList.add('cd-mtext');
@@ -714,11 +716,13 @@ function mirrorStyle(selectorText, style) {
         if (!MIRROR_TOUCH.test(part)) continue; // already applies inside 별지 as written
         const renamed = MIRROR_NAMES.reduce((text, [from, to]) => text.replace(from, to), part.trim());
         const subject = topLevel(renamed, /[\s>+~]/).filter(Boolean).pop() || '';
-        groups[MIRROR_FRAME.test(subject) && !subject.includes('.cd-mtext') ? 'frame' : subject.includes('.cd-mtext') ? 'text' : 'inner'].push(renamed);
+        // Pseudo-elements of the text box (ornaments, labels) come over whole.
+        const box = subject.includes('.cd-mtext') && !subject.includes('::');
+        groups[MIRROR_FRAME.test(subject) && !subject.includes('.cd-mtext') ? 'frame' : box ? 'text' : 'inner'].push(renamed);
     }
     const out = [];
     if (groups.inner.length) out.push(`${groups.inner.join(', ')} { ${style.cssText} }`);
-    const text = groups.text.length && declarations(style, name => TEXT_PROP.test(name));
+    const text = groups.text.length && declarations(style, name => !LAYOUT_PROP.test(name));
     if (text) out.push(`${groups.text.join(', ')} { ${text} }`);
     // The message frames carry only variables, which the text inside inherits.
     const vars = groups.frame.length && declarations(style, name => name.startsWith('--'));

@@ -131,16 +131,20 @@ body.sideleaf-no-message-button .sideleaf-archive-button { display: none !import
 #sideleaf-dialog .cd-tools .cd-labelled { min-height: 34px; padding: 5px 11px; }
 #sideleaf-dialog .cd-text-wrap { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; }
 #sideleaf-dialog .cd-text { width: 100%; white-space: pre-wrap; overflow-wrap: anywhere; }
-#sideleaf-dialog .cd-card :is(.cd-text, .cd-rich) { padding: 14px 16px; border-radius: 10px; background: var(--sl-message-bg, var(--sl-soft)); max-height: 60vh; overflow-y: auto; }
+#sideleaf-dialog .cd-card .cd-mirror { max-height: 60vh; overflow-y: auto; }
 /* Chat-style body. On open, the page's own rules for chat messages (SillyTavern's, the theme's) are
    mirrored onto it (see syncChatStyles). The defaults below sit in a cascade layer, so any page rule,
    however plain (`code { … }`), wins over them, exactly as it would in the chat. */
-#sideleaf-dialog .cd-mirror, #sideleaf-dialog .cd-mes, #sideleaf-dialog .cd-mblock { display: block; width: 100%; min-width: 0; margin: 0; padding: 0; border: 0; background: none; }
+/* Stand-ins for the chat's message and message block; the theme's message box goes on the text inside. */
+#sideleaf-dialog .cd-mirror, #sideleaf-dialog .cd-mes, #sideleaf-dialog .cd-mblock { display: block; width: 100%; min-width: 0; }
 #sideleaf-dialog .cd-rich {
     /* Paint containment keeps archived inline styles (e.g. position: fixed) inside the body box. */
     position: relative; contain: paint; width: 100%; overflow-wrap: anywhere;
 }
 @layer sideleaf-defaults {
+    /* The card's message area, like the chat's message around its text. */
+    #sideleaf-dialog .cd-card .cd-mirror { padding: 14px 16px; border-radius: 10px; background: var(--sl-message-bg, var(--sl-soft)); }
+    @media (max-width: 600px) { #sideleaf-dialog .cd-card .cd-mirror { padding: 12px; } }
     #sideleaf-dialog .cd-rich { font-family: var(--sl-chat-font, inherit); font-size: var(--sl-chat-size, 1em); line-height: var(--sl-chat-line, 1.8); letter-spacing: var(--sl-chat-spacing, normal); }
     #sideleaf-dialog .cd-rich > :first-child { margin-top: 0; }
     #sideleaf-dialog .cd-rich > :last-child { margin-bottom: 0; }
@@ -232,7 +236,7 @@ body.sideleaf-no-message-button .sideleaf-archive-button { display: none !import
     #sideleaf-dialog .cd-sort select { max-width: 6.5em; }
     #sideleaf-dialog .cd-card-head { padding: 12px; gap: 10px; }
     #sideleaf-dialog .cd-card-body { padding: 0 12px 12px; }
-    #sideleaf-dialog .cd-card :is(.cd-text, .cd-rich) { padding: 12px; max-height: none; }
+    #sideleaf-dialog .cd-card .cd-mirror { max-height: none; }
     #sideleaf-dialog .cd-tools { flex-wrap: nowrap; gap: 2px; }
     #sideleaf-dialog .cd-tools .cd-version { flex: 0 1 auto; min-width: 0; }
     #sideleaf-dialog .cd-tools .cd-version select { min-width: 0; width: 100%; text-overflow: ellipsis; }
