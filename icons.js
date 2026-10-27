@@ -24,6 +24,8 @@ const paths = {
     sort: ['M7 4.5v15', 'm4 16.5 3 3 3-3', 'M13.5 6.5h7M13.5 12h5M13.5 17.5h3'],
     layers: ['m12 3.5 8.5 4.6-8.5 4.6-8.5-4.6L12 3.5Z', 'm3.5 12.4 8.5 4.6 8.5-4.6', 'm3.5 16.4 8.5 4.6 8.5-4.6'],
     split: ['M4.5 4.5h7v15h-7z', 'M15 7.5h4.5v12H15', 'M15 4.5h4.5'],
+    folder: ['M3.5 7.2V17.8a1.7 1.7 0 0 0 1.7 1.7h13.6a1.7 1.7 0 0 0 1.7-1.7V9.6a1.7 1.7 0 0 0-1.7-1.7h-6.6L10.4 5.5H5.2a1.7 1.7 0 0 0-1.7 1.7Z'],
+    plus: ['M12 5.5v13M5.5 12h13'],
 };
 const heavy = new Set(['grip']);
 // Filled shapes keep a thin same-colour stroke only to soften their corners.

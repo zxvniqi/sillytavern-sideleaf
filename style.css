@@ -2,6 +2,7 @@
 
 /* Entry points outside the dialog */
 #sideleaf-wand { cursor: pointer; }
+body.sideleaf-no-message-button .sideleaf-archive-button { display: none !important; }
 
 /* Dialog shell: colours come from the live chat, surfaces are tints of its text colour. */
 #sideleaf-dialog {
@@ -89,6 +90,19 @@
 #sideleaf-dialog .cd-select > .cd-icon:last-child { width: 14px; height: 14px; flex-basis: 14px; color: var(--sl-muted); }
 #sideleaf-dialog .cd-select select { appearance: none; -webkit-appearance: none; border: 0 !important; outline: none; margin: 0; padding: 0 !important; min-height: 0; width: auto; background: transparent !important; color: inherit; font: inherit; font-size: .88em; cursor: pointer; box-shadow: none; }
 #sideleaf-dialog .cd-select option { color: CanvasText; background: Canvas; }
+/* Folder chips: one scrollable row, so many folders never push the list down. */
+#sideleaf-dialog .cd-folders { display: flex; align-items: center; gap: 2px; min-width: 0; }
+#sideleaf-dialog .cd-chips { display: flex; gap: 6px; flex: 1; min-width: 0; overflow-x: auto; scrollbar-width: none; padding: 1px; }
+#sideleaf-dialog .cd-chips::-webkit-scrollbar { display: none; }
+#sideleaf-dialog .cd-chip { flex-shrink: 0; min-height: 32px; padding: 4px 6px 4px 11px; gap: 6px; border-radius: 999px; border-color: var(--sl-line); background: var(--sl-soft); font-size: .86em; color: var(--sl-muted); white-space: nowrap; }
+#sideleaf-dialog .cd-chip .cd-icon { width: 15px; height: 15px; flex-basis: 15px; }
+#sideleaf-dialog .cd-chip .cd-count { min-width: 20px; padding: 0 6px; font-size: .9em; }
+#sideleaf-dialog .cd-chip[aria-pressed="true"] { color: var(--sl-fg); background: var(--sl-tint); border-color: color-mix(in srgb, var(--sl-ink) 50%, transparent); }
+#sideleaf-dialog .cd-chip[aria-pressed="true"] .cd-icon { color: var(--sl-ink); }
+#sideleaf-dialog .cd-chip-add { flex: 0 0 32px; width: 32px; height: 32px; min-height: 32px; border-radius: 999px; border: 1px dashed var(--sl-line); }
+#sideleaf-dialog .cd-folders > .cd-icon-button { flex-shrink: 0; }
+#sideleaf-dialog .cd-move select { max-width: 9em; text-overflow: ellipsis; }
+#sideleaf-dialog .cd-folder-pick select { max-width: 8em; text-overflow: ellipsis; }
 #sideleaf-dialog .cd-bulkbar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 #sideleaf-dialog .cd-bulkbar .cd-labelled { min-height: 34px; padding: 6px 11px; }
 #sideleaf-dialog .cd-hint { margin: 0; font-size: .78em; line-height: 1.55; color: var(--sl-muted); }
@@ -116,36 +130,35 @@
 #sideleaf-dialog .cd-tools .cd-select { min-height: 34px; }
 #sideleaf-dialog .cd-tools .cd-labelled { min-height: 34px; padding: 5px 11px; }
 #sideleaf-dialog .cd-text-wrap { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; }
-#sideleaf-dialog .cd-text {
-    width: 100%; white-space: pre-wrap; overflow-wrap: anywhere;
-    font-family: var(--sl-chat-font, inherit); font-size: var(--sl-chat-size, 1em); line-height: var(--sl-chat-line, 1.8); letter-spacing: var(--sl-chat-spacing, normal);
-}
+#sideleaf-dialog .cd-text { width: 100%; white-space: pre-wrap; overflow-wrap: anywhere; }
 #sideleaf-dialog .cd-card :is(.cd-text, .cd-rich) { padding: 14px 16px; border-radius: 10px; background: var(--sl-message-bg, var(--sl-soft)); max-height: 60vh; overflow-y: auto; }
-/* Chat-style body. Defaults follow SillyTavern's own message rules; the live theme's values are copied over them on open. */
+/* Chat-style body. These are only fallbacks (zero id weight via :where): on open, the page's own rules
+   for chat messages are mirrored onto the body (see syncChatStyles), and those always win. */
+#sideleaf-dialog .cd-mirror, #sideleaf-dialog .cd-mes, #sideleaf-dialog .cd-mblock { display: block; width: 100%; min-width: 0; margin: 0; padding: 0; border: 0; background: none; }
 #sideleaf-dialog .cd-rich {
     /* Paint containment keeps archived inline styles (e.g. position: fixed) inside the body box. */
     position: relative; contain: paint; width: 100%; overflow-wrap: anywhere;
-    font-family: var(--sl-chat-font, inherit); font-size: var(--sl-chat-size, 1em); line-height: var(--sl-chat-line, 1.8); letter-spacing: var(--sl-chat-spacing, normal);
 }
-#sideleaf-dialog .cd-rich > :first-child { margin-top: 0; }
-#sideleaf-dialog .cd-rich > :last-child { margin-bottom: 0; }
-#sideleaf-dialog .cd-rich p { margin: 0 0 .9em; }
-#sideleaf-dialog .cd-rich q { color: var(--SmartThemeQuoteColor, inherit); }
+:where(#sideleaf-dialog) .cd-rich { font-family: var(--sl-chat-font, inherit); font-size: var(--sl-chat-size, 1em); line-height: var(--sl-chat-line, 1.8); letter-spacing: var(--sl-chat-spacing, normal); }
+:where(#sideleaf-dialog) .cd-rich > :first-child { margin-top: 0; }
+:where(#sideleaf-dialog) .cd-rich > :last-child { margin-bottom: 0; }
+:where(#sideleaf-dialog) .cd-rich p { margin: 0 0 .9em; }
+:where(#sideleaf-dialog) .cd-rich q { color: var(--SmartThemeQuoteColor, inherit); }
 /* Messages keep their own quote characters, so the browser's automatic ones stay off (as in the chat). */
-#sideleaf-dialog .cd-rich q::before, #sideleaf-dialog .cd-rich q::after { content: ''; }
-#sideleaf-dialog .cd-rich :is(em, i) { color: var(--SmartThemeEmColor, inherit); }
-#sideleaf-dialog .cd-rich q :is(em, i) { color: inherit; }
-#sideleaf-dialog .cd-rich u { color: var(--SmartThemeUnderlineColor, inherit); }
-#sideleaf-dialog .cd-rich :is(strong, b, h1, h2, h3) { font-weight: bold; }
-#sideleaf-dialog .cd-rich blockquote { margin: .8em 0; padding-left: 10px; border-left: 3px solid var(--SmartThemeQuoteColor, var(--sl-line)); }
-#sideleaf-dialog .cd-rich :is(ul, ol) { margin: .4em 0 .9em; padding-left: 1.6em; }
-#sideleaf-dialog .cd-rich code { padding: 0 .3em; border-radius: 4px; background: var(--sl-soft); font-family: var(--monoFontFamily, monospace); }
-#sideleaf-dialog .cd-rich pre { overflow-x: auto; white-space: pre-wrap; }
-#sideleaf-dialog .cd-rich pre code { display: block; padding: 1em; }
-#sideleaf-dialog .cd-rich img { max-width: 100%; height: auto; border-radius: 6px; }
-#sideleaf-dialog .cd-rich hr { border: 0; border-top: 1px solid var(--sl-line); margin: 1.2em 0; }
-#sideleaf-dialog .cd-rich details { margin: .4em 0; }
-#sideleaf-dialog .cd-rich summary { cursor: pointer; font-weight: bold; }
+:where(#sideleaf-dialog) .cd-rich q::before, :where(#sideleaf-dialog) .cd-rich q::after { content: ''; }
+:where(#sideleaf-dialog) .cd-rich :is(em, i) { color: var(--SmartThemeEmColor, inherit); }
+:where(#sideleaf-dialog) .cd-rich q :is(em, i) { color: inherit; }
+:where(#sideleaf-dialog) .cd-rich u { color: var(--SmartThemeUnderlineColor, inherit); }
+:where(#sideleaf-dialog) .cd-rich :is(strong, b, h1, h2, h3) { font-weight: bold; }
+:where(#sideleaf-dialog) .cd-rich blockquote { margin: .8em 0; padding-left: 10px; border-left: 3px solid var(--SmartThemeQuoteColor, var(--sl-line)); }
+:where(#sideleaf-dialog) .cd-rich :is(ul, ol) { margin: .4em 0 .9em; padding-left: 1.6em; }
+:where(#sideleaf-dialog) .cd-rich code { padding: 0 .3em; border-radius: 4px; background: var(--sl-soft); font-family: var(--monoFontFamily, monospace); }
+:where(#sideleaf-dialog) .cd-rich pre { overflow-x: auto; white-space: pre-wrap; }
+:where(#sideleaf-dialog) .cd-rich pre code { display: block; padding: 1em; }
+:where(#sideleaf-dialog) .cd-rich img { max-width: 100%; height: auto; border-radius: 6px; }
+:where(#sideleaf-dialog) .cd-rich hr { border: 0; border-top: 1px solid var(--sl-line); margin: 1.2em 0; }
+:where(#sideleaf-dialog) .cd-rich details { margin: .4em 0; }
+:where(#sideleaf-dialog) .cd-rich summary { cursor: pointer; font-weight: bold; }
 #sideleaf-dialog .cd-more { border-color: var(--sl-line); }
 #sideleaf-dialog .cd-grip { cursor: grab; touch-action: none; }
 #sideleaf-dialog .cd-dragging { opacity: .45; }

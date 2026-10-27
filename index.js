@@ -1,4 +1,4 @@
-import { KEY, PAGE_SIZE, readDrawer, itemTitle, archivePlan, restorePlan, chatIdentity, preview, readingVersions, editPlan, deletePlan, orderedItems, reorderPlan } from './model.js';
+import { KEY, PAGE_SIZE, readDrawer, itemTitle, archivePlan, restorePlan, chatIdentity, preview, readingVersions, editPlan, deletePlan, orderedItems, reorderPlan, folderPlan, folderOf } from './model.js';
 import { icon } from './icons.js';
 import { installQrSource } from './qr-source.js';
 import { readableText, fullDetailsText } from './reading-text.js';
@@ -34,6 +34,7 @@ let composing = false;
 let expanded = new Set();
 let editMode = false;
 let sortMode = 'desc';
+let folderView = 'all'; // folder chip: 'all', '' (no folder) or a folder id
 let readerKey = null;
 let readerItems = [];
 let readerReturn = null;
@@ -117,6 +118,13 @@ function setSort(value) {
 function archiveItems() {
     return orderedItems(currentDrawer(), sortMode).map(item => ({...item,key:item.id,index:item.originalIndex}));
 }
+// The archive as the selected folder chip shows it.
+function shownItems() {
+    const drawer = currentDrawer(), all = archiveItems();
+    if (folderView === 'all') return all;
+    if (folderView && !drawer.folders?.some(folder => folder.id === folderView)) { folderView = 'all'; return all; }
+    return all.filter(item => folderOf(drawer, item) === folderView);
+}
 function matchesQuery(item, raw) {
     const query = raw.trim().toLocaleLowerCase();
     return !query || [item.title, item.message.name, ...readingVersions(item).map(v=>v.text)].some(text => typeof text === 'string' && text.toLocaleLowerCase().includes(query));
@@ -193,6 +201,7 @@ function makePlan(kind, chat, drawer, edit) {
     switch (kind) {
         case 'migrate': return { chat: chat.slice(), drawer: { ...drawer, revision: id() } };
         case 'order': return reorderPlan(chat, drawer, edit.order, id);
+        case 'folder': return folderPlan(chat, drawer, edit, id);
         case 'edit': return editPlan(chat, drawer, edit.id, edit.title, edit.change, id);
         case 'delete': return deletePlan(chat, drawer, edit?.ids ?? [...selected], id);
         case 'archive': return archivePlan(chat, drawer, [...selected], id);
@@ -270,6 +279,7 @@ const SAVED_NOTES = {
     restore: '대화로 복원했습니다.',
     edit: '변경 사항을 저장했습니다.',
     order: '변경 사항을 저장했습니다.',
+    folder: '폴더를 정리했습니다.',
     delete: '별지에서 삭제했습니다.',
 };
 
@@ -295,7 +305,7 @@ async function finishSave() {
         console.warn('[Sideleaf] Saved, but refreshing the chat view failed', error);
     } finally {
         busy = false;
-        if (operation.kind !== 'edit' && operation.kind !== 'order') page = 0;
+        if (!['edit', 'order', 'folder'].includes(operation.kind)) page = 0;
         view = 'archive';
         if (operation.kind === 'order') { sortMode = 'manual'; context().accountStorage?.setItem('sideleaf.sort', sortMode); }
         const target = readerReturn && archiveItems().find(x => x.key === readerReturn);
@@ -315,7 +325,7 @@ function close(discardEdit = false) {
     clearArchiveCache();
     snapshot = []; selected.clear(); search = ''; editing = null; selectionUi = null;
     reader = false; expanded.clear(); composing = false; versionChoice.clear();
-    editMode = false; readerKey = null; readerItems = []; readerReturn = null; readerRevision = null;
+    editMode = false; readerKey = null; readerItems = []; readerReturn = null; readerRevision = null; folderView = 'all';
 }
 
 function downloadRecovery() {
@@ -340,7 +350,7 @@ function open() {
         return;
     }
     openedChat = chatIdentity(context());
-    view = 'archive'; page = 0; selected.clear(); search = ''; editMode = false;
+    view = 'archive'; page = 0; selected.clear(); search = ''; editMode = false; folderView = 'all';
     sortMode = context().accountStorage?.getItem('sideleaf.sort') || sortMode;
     dialog = el('dialog');
     dialog.id = 'sideleaf-dialog';
@@ -424,12 +434,17 @@ function render() {
         const sort = selectControl('sort', '정렬', [['desc','최신순'],['asc','오래된순'],['manual','직접 정한 순서']], sortMode, setSort, 'cd-sort');
         sort.querySelector('select').disabled = locked; toolbar.append(sort);
     }
+    if (view === 'archive' && drawer.items.length && !drawer.folders?.length) {
+        const add = iconButton('folder', '폴더 만들기 · 보관 항목을 폴더로 나눠 정리합니다', () => folderEditor(null, editMode ? [...selected] : []));
+        add.disabled = locked; toolbar.append(add);
+    }
     controls.append(tabs, toolbar);
+    if (view === 'archive' && drawer.folders?.length) controls.append(folderBar(drawer, locked));
 
     if (view === 'select' && snapshot.length && chatChanged(ctx)) selected.clear();
     snapshot = ctx.chat.slice();
     const items = view === 'archive'
-        ? archiveItems()
+        ? shownItems()
         : ctx.chat.map((message, index) => ({ key: index, message, index })).reverse();
     const query = search.trim().toLocaleLowerCase();
     const filtered = query ? items.filter(matchesSearch) : items;
@@ -503,15 +518,20 @@ function render() {
             : iconButton('star', '선택한 메시지를 대화에서 빼서 별지에 보관', () => commit('archive'), '별지에 보관');
         action.classList.add('cd-primary');
         footer.append(count, el('span', 'cd-spacer'));
-        let remove = null, toEnd = null;
+        let remove = null, toEnd = null, move = null;
         if (view === 'archive') {
+            move = selectControl('folder', '고른 항목을 폴더로 옮기기', [['', '폴더로…'], ...folderChoices(drawer), [NEW_FOLDER, '+ 새 폴더 만들기']], '', value => {
+                if (value === NEW_FOLDER) folderEditor(null, [...selected]);
+                else commit('folder', {type:'move', ids:[...selected], folder:value === NO_FOLDER ? '' : value});
+            }, 'cd-move');
+            footer.append(move);
             remove = iconButton('trash', '선택한 항목을 별지에서 삭제', () => removeItems([...selected]), '삭제');
             remove.classList.add('cd-danger');
             toEnd = iconButton('down', '선택한 메시지를 현재 대화 맨 끝에 붙이기', () => commit('restore', {place:'end'}), '채팅 끝에');
             footer.append(remove, toEnd);
         }
         footer.append(action);
-        selectionUi = { count, action, toEnd, remove, none, generating };
+        selectionUi = { count, action, toEnd, remove, move, none, generating };
         parts.push(footer);
     }
     parts.push(status);
@@ -538,6 +558,7 @@ function updateSelection() {
     if (selectionUi.toEnd) selectionUi.toEnd.disabled = selectionUi.action.disabled;
     if (selectionUi.none) selectionUi.none.disabled = !selected.size || locked;
     if (selectionUi.remove) selectionUi.remove.disabled = !selected.size || locked;
+    if (selectionUi.move) selectionUi.move.querySelector('select').disabled = !selected.size || locked;
 }
 
 // Archived bodies are formatted like the chat (markdown, quotes, regex display scripts),
@@ -575,9 +596,9 @@ function scopeStyles(box) {
 const BLOCKED_ATTRS = ['id', 'name', 'for', 'form', 'formaction', 'srcdoc', 'popovertarget', 'popovertargetaction'];
 function contentBlock(item, version) {
     // The screen capture is already-rendered text; formatting it again would re-run markdown and regex scripts.
-    if (version.key === 'screen') return textBlock(version.text);
+    if (version.key === 'screen') return textBlock(version.text, item.message);
     const ctx = context(), purify = globalThis.SillyTavern?.libs?.DOMPurify;
-    if (typeof ctx.messageFormatting !== 'function' || typeof purify?.sanitize !== 'function') return textBlock(version.text);
+    if (typeof ctx.messageFormatting !== 'function' || typeof purify?.sanitize !== 'function') return textBlock(version.text, item.message);
     let fragment;
     try {
         const message = item.message;
@@ -586,7 +607,7 @@ function contentBlock(item, version) {
         fragment = purify.sanitize(html, { RETURN_DOM_FRAGMENT: true, FORCE_BODY: true, FORBID_TAGS: BLOCKED_TAGS, FORBID_ATTR: BLOCKED_ATTRS });
     } catch (error) {
         console.warn('[Sideleaf] Falling back to plain text', error);
-        return textBlock(version.text);
+        return textBlock(version.text, item.message);
     }
     // Folded sections open up front so the whole body reads without extra clicks.
     fragment.querySelectorAll('details').forEach(node => { node.open = true; });
@@ -601,7 +622,7 @@ function contentBlock(item, version) {
     box.querySelectorAll('pre > code').forEach(code => {
         if (FRONTEND.test(code.textContent)) code.parentElement.replaceWith(framedHtml(code.textContent));
     });
-    return box;
+    return mirrored(box, item.message);
 }
 
 const FRONTEND = /<\s*(?:!doctype|html|head|body|style|div|section|article|table|span|img|p)\b/i;
@@ -611,8 +632,10 @@ const FRONTEND = /<\s*(?:!doctype|html|head|body|style|div|section|article|table
 // external script. The frame reports only its own height back to 별지.
 const FRAME_CSP = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline' *; img-src * data: blob:; font-src * data:; media-src * data: blob:";
 const FRAME_HEAD = `<meta http-equiv="Content-Security-Policy" content="${FRAME_CSP}"><style>html,body{margin:0}</style>`;
-// Reports at fixed moments as well as on resize: a single early report can be lost while the frame starts up.
-const FRAME_SIZE = `<script>(function(){function send(){var b=document.body,h=Math.ceil(Math.max(b?b.scrollHeight:0,document.documentElement.scrollHeight));parent.postMessage({sideleafFrameHeight:h},'*');}addEventListener('DOMContentLoaded',send);addEventListener('load',function(){send();setTimeout(send,300);setTimeout(send,1000);});if(window.ResizeObserver)new ResizeObserver(send).observe(document.documentElement);})();<\/script>`;
+// Reports at fixed moments as well as on changes: a single early report can be lost while the frame starts up.
+// The height is the extent of what is actually drawn (a range over the body), not scrollHeight, which never
+// drops below the frame's current height and so would keep the space of a section folded again.
+const FRAME_SIZE = `<script>(function(){var t;function measure(){var b=document.body;if(!b)return 0;var r=document.createRange();r.selectNodeContents(b);var box=r.getBoundingClientRect(),s=getComputedStyle(b),bottom=box.height?box.bottom+scrollY+parseFloat(s.paddingBottom)+parseFloat(s.borderBottomWidth)+parseFloat(s.marginBottom):0;return Math.ceil(bottom||b.scrollHeight);}function send(){clearTimeout(t);parent.postMessage({sideleafFrameHeight:measure()},'*');}function soon(){clearTimeout(t);t=setTimeout(send,30);}addEventListener('DOMContentLoaded',send);addEventListener('load',function(){send();setTimeout(send,300);setTimeout(send,1000);});addEventListener('toggle',soon,true);addEventListener('click',function(){soon();setTimeout(send,400);},true);addEventListener('transitionend',soon,true);if(window.ResizeObserver){var o=new ResizeObserver(soon);o.observe(document.documentElement);if(document.body)o.observe(document.body);}if(window.MutationObserver)new MutationObserver(soon).observe(document.documentElement,{subtree:true,childList:true,attributes:true,characterData:true});})();<\/script>`;
 const frames = new WeakMap();
 addEventListener('message', event => {
     const height = event.data?.sideleafFrameHeight;
@@ -643,63 +666,118 @@ function frameDocument(html) {
     return `<!doctype html><head>${FRAME_HEAD}</head>${source}${FRAME_SIZE}`;
 }
 
-// Themes often style quotes, emphasis and headings only inside #chat. A hidden sample message is
-// measured there for one synchronous moment and the results are copied, so the reader follows
-// whichever theme is active without naming any of them.
-const SAMPLE_TAGS = ['q', 'em', 'i', 'strong', 'b', 'u', 'del', 'a', 'code', 'blockquote', 'h1', 'h2', 'h3', 'p'];
+// Archived bodies sit in the same nesting as a chat message (chat > message > block > text), under
+// 별지's own class names, with the message's speaker attributes. Every page rule written for chat
+// messages (SillyTavern's, the theme's, theme extensions') is copied with #chat/.mes/.mes_block/
+// .mes_text renamed to these, so quotes, highlights, emphasis and code look exactly as in the chat,
+// whatever theme is active and however its selectors are written. Nothing in the chat is touched.
+const MIRROR_NAMES = [[/#chat(?![\w-])/g, '.cd-mirror'], [/\.mes_text(?![\w-])/g, '.cd-mtext'], [/\.mes_block(?![\w-])/g, '.cd-mblock'], [/\.mes(?![\w-])/g, '.cd-mes']];
+const MIRROR_TOUCH = /#chat(?![\w-])|\.mes(?:_text|_block)?(?![\w-])/;
+const MIRROR_FRAME = /\.cd-(?:mirror|mes|mblock)(?![\w-])/;
+// Rules aimed at the text box itself keep only text styling; its box (size, padding, background) stays 별지's.
+const TEXT_PROP = /^(?:--|color$|font|line-height$|letter-spacing$|word-spacing$|text-|-webkit-text-|white-space$|overflow-wrap$|word-break$|hyphens$|tab-size$|quotes$|direction$|unicode-bidi$)/;
+function mirrored(box, message) {
+    const chat = el('div', 'cd-mirror'), mes = el('div', 'cd-mes'), block = el('div', 'cd-mblock');
+    box.classList.add('cd-mtext');
+    mes.setAttribute('is_user', String(Boolean(message?.is_user)));
+    mes.setAttribute('is_system', String(Boolean(message?.is_system)));
+    if (message?.name) mes.setAttribute('ch_name', String(message.name));
+    block.append(box); mes.append(block); chat.append(mes);
+    return chat;
+}
+// Top-level split of a selector list / compound chain, ignoring commas and spaces inside () and [].
+function topLevel(text, separator) {
+    const parts = []; let depth = 0, quote = '', start = 0;
+    for (let i = 0; i < text.length; i++) {
+        const c = text[i];
+        if (quote) { if (c === '\\') i++; else if (c === quote) quote = ''; continue; }
+        if (c === '"' || c === '\'') quote = c;
+        else if (c === '(' || c === '[') depth++;
+        else if (c === ')' || c === ']') depth--;
+        else if (!depth && separator.test(c)) { parts.push(text.slice(start, i)); start = i + 1; }
+    }
+    parts.push(text.slice(start));
+    return parts;
+}
+function declarations(style, keep) {
+    const out = [];
+    for (let i = 0; i < style.length; i++) {
+        const name = style[i], value = style.getPropertyValue(name);
+        if (value && keep(name)) out.push(`${name}: ${value}${style.getPropertyPriority(name) ? ' !important' : ''}`);
+    }
+    return out.join('; ');
+}
+function mirrorRule(rule) {
+    if (rule instanceof CSSStyleRule) {
+        if (!MIRROR_TOUCH.test(rule.selectorText)) return [];
+        const groups = { frame: [], text: [], inner: [] };
+        for (const part of topLevel(rule.selectorText, /,/)) {
+            if (!MIRROR_TOUCH.test(part)) continue; // already applies inside 별지 as written
+            const renamed = MIRROR_NAMES.reduce((text, [from, to]) => text.replace(from, to), part.trim());
+            const subject = topLevel(renamed, /[\s>+~]/).filter(Boolean).pop() || '';
+            groups[MIRROR_FRAME.test(subject) && !subject.includes('.cd-mtext') ? 'frame' : subject.includes('.cd-mtext') ? 'text' : 'inner'].push(renamed);
+        }
+        const out = [];
+        if (groups.inner.length) out.push(`${groups.inner.join(', ')} { ${rule.style.cssText} }`);
+        const text = groups.text.length && declarations(rule.style, name => TEXT_PROP.test(name));
+        if (text) out.push(`${groups.text.join(', ')} { ${text} }`);
+        // The message frames carry only variables, which the text inside inherits.
+        const vars = groups.frame.length && declarations(rule.style, name => name.startsWith('--'));
+        if (vars) out.push(`${groups.frame.join(', ')} { ${vars} }`);
+        return out;
+    }
+    const inner = () => [...rule.cssRules].flatMap(mirrorRule).filter(Boolean).join('\n');
+    if (rule instanceof CSSMediaRule) { const body = inner(); return body && `@media ${rule.conditionText} {\n${body}\n}`; }
+    if (rule instanceof CSSSupportsRule) { const body = inner(); return body && `@supports ${rule.conditionText} {\n${body}\n}`; }
+    if (globalThis.CSSLayerBlockRule && rule instanceof CSSLayerBlockRule) { const body = inner(); return body && `@layer ${rule.name} {\n${body}\n}`; }
+    return [];
+}
+const OWN_STYLE = new URL('./style.css', import.meta.url).href;
 const BASE_PROPS = ['color', 'font-family', 'font-size', 'font-weight', 'font-style', 'line-height', 'letter-spacing', 'text-shadow', 'text-align', 'text-indent', '-webkit-text-fill-color'];
-const TAG_PROPS = [...BASE_PROPS, 'background-color', 'text-decoration-line', 'text-decoration-color', 'text-decoration-style', 'text-decoration-thickness', 'border-left-width', 'border-left-style', 'border-left-color', 'border-radius', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left', 'margin-top', 'margin-bottom'];
 function syncChatStyles() {
     document.getElementById('sideleaf-chat-style')?.remove();
     const chat = document.getElementById('chat');
     if (!chat) return;
+    const css = [];
+    // The text colour and font a message inherits from the page around the chat, measured on a hidden
+    // sample message (prepended so `:last-child` rules never touch the real last message).
     const probe = el('div', 'mes'), block = el('div', 'mes_block'), text = el('div', 'mes_text');
     probe.setAttribute('is_user', 'false'); probe.setAttribute('aria-hidden', 'true'); probe.style.display = 'none';
-    const samples = SAMPLE_TAGS.map(tag => { const node = el(tag, '', 'x'); text.append(node); return [` ${tag}`, node, text]; });
-    const quoted = el('em', '', 'x'); samples[0][1].append(quoted); samples.push([' q em', quoted, samples[0][1]]);
-    // Code blocks: the block itself and its highlighted code (light text usually sits on a dark block).
-    const pre = el('pre'), preCode = el('code', 'hljs', 'x'); pre.append(preCode); text.append(pre);
-    samples.push([' pre', pre, text], [' pre code', preCode, pre]);
-    // Prepended so `:last-child` rules never touch the real last message during the measurement.
     block.append(text); probe.append(block); chat.prepend(probe);
-    const style = el('style'); style.id = 'sideleaf-chat-style'; document.head.append(style);
     try {
-        const copy = (selector, node, props, parent) => {
-            const computed = getComputedStyle(node), against = parent && getComputedStyle(parent);
-            const rule = style.sheet.cssRules[style.sheet.insertRule(`#sideleaf-dialog .cd-rich${selector} {}`, style.sheet.cssRules.length)];
-            for (const prop of props) {
-                const value = computed.getPropertyValue(prop);
-                if (value && (!against || value !== against.getPropertyValue(prop))) rule.style.setProperty(prop, value);
-            }
-        };
-        copy('', text, BASE_PROPS, null);
-        for (const [selector, node, parent] of samples) copy(selector, node, TAG_PROPS, parent);
-        // Quote marks and similar decorations live in pseudo-elements (chat usually hides the browser's own).
-        for (const [selector, node] of samples) for (const pseudo of ['::before', '::after']) {
-            const computed = getComputedStyle(node, pseudo), content = computed.getPropertyValue('content');
-            if (!content || content === 'none' || content === 'normal') continue;
-            const rule = style.sheet.cssRules[style.sheet.insertRule(`#sideleaf-dialog .cd-rich${selector}${pseudo} {}`, style.sheet.cssRules.length)];
-            for (const prop of ['content', 'color']) rule.style.setProperty(prop, computed.getPropertyValue(prop));
-        }
+        const computed = getComputedStyle(text);
+        css.push(`:where(#sideleaf-dialog) .cd-rich { ${BASE_PROPS.map(prop => `${prop}: ${computed.getPropertyValue(prop)}`).join('; ')} }`);
     } finally {
         probe.remove();
+    }
+    for (const sheet of document.styleSheets) {
+        // 별지's own sheet, and <style> blocks inside chat messages (each archived body brings its own).
+        if (sheet.href === OWN_STYLE || sheet.ownerNode?.closest?.('#chat, #sideleaf-dialog')) continue;
+        let rules;
+        try { rules = sheet.cssRules; } catch { continue; } // cross-origin sheets cannot be read
+        for (const rule of rules) css.push(...[mirrorRule(rule)].flat().filter(Boolean));
+    }
+    const style = el('style'); style.id = 'sideleaf-chat-style'; document.head.append(style);
+    // Inserted rule by rule: one selector the browser rejects must not drop the rest.
+    for (const text of css) {
+        try { style.sheet.insertRule(text, style.sheet.cssRules.length); } catch { /* unsupported selector */ }
     }
 }
 
 // Plain text, never parsed as HTML. Quoted passages are wrapped in <q> so they keep the theme's quote colour.
 const QUOTED = /("[^"\n]+"|“[^”\n]+”|「[^」\n]+」|『[^』\n]+』)/;
-function quotedText(text) {
+function quotedText(text, message) {
     const node = el('div', 'cd-text cd-rich');
     text.split(QUOTED).forEach((part, i) => node.append(i % 2 ? el('q', '', part) : part));
-    return node;
+    return mirrored(node, message);
 }
-function textBlock(text) {
+function textBlock(text, message) {
     const box = el('div', 'cd-text-wrap');
     let shown = 0;
     const more = button('본문 더 보기', () => append(), 'cd-more');
     const append = () => {
         more.remove();
-        box.append(quotedText(text.slice(shown, shown + 20000)));
+        box.append(quotedText(text.slice(shown, shown + 20000), message));
         shown += 20000;
         if (shown < text.length) box.append(more);
     };
@@ -711,6 +789,14 @@ function itemTools(item, versions, current, refresh, reading = false) {
     const tools = el('div', 'cd-tools');
     const locked = isLocked();
     if (versions.length > 1) tools.append(selectControl('layers', '읽을 본문 고르기', versions.map(v => [v.key, v.label]), current.key, value => { versionChoice.set(item.key, value); refresh(); }, 'cd-version'));
+    const drawer = currentDrawer();
+    if (drawer.folders?.length) {
+        const folder = selectControl('folder', '폴더 옮기기', folderChoices(drawer), folderOf(drawer, item) || NO_FOLDER, value => {
+            if (reader) readerReturn = item.key;
+            commit('folder', {type:'move', ids:[item.key], folder:value === NO_FOLDER ? '' : value});
+        }, 'cd-folder-pick');
+        folder.querySelector('select').disabled = locked; tools.append(folder);
+    }
     tools.append(el('span', 'cd-spacer'));
     if (!reading) tools.append(iconButton('book', '넓은 화면으로 읽기', () => showReader(item), '크게 읽기'));
     const copy = iconButton('copy', '지금 보이는 본문 복사', () => copyText(current.text));
@@ -721,6 +807,63 @@ function itemTools(item, versions, current, refresh, reading = false) {
     title.disabled = body.disabled = remove.disabled = locked;
     tools.append(copy, title, body, remove);
     return tools;
+}
+
+// Folder choices for selects; the empty value is reserved for the "move to…" prompt.
+const NO_FOLDER = '\u0000none', NEW_FOLDER = '\u0000new';
+function folderChoices(drawer) {
+    return [[NO_FOLDER, '폴더 없음'], ...(drawer.folders || []).map(folder => [folder.id, folder.name])];
+}
+function folderBar(drawer, locked) {
+    const bar = el('div', 'cd-folders'); bar.setAttribute('role', 'toolbar'); bar.setAttribute('aria-label', '폴더');
+    const counts = new Map();
+    for (const item of drawer.items) { const key = folderOf(drawer, item); counts.set(key, (counts.get(key) || 0) + 1); }
+    const chip = (key, text, count, iconName) => {
+        const node = button(text, () => { if (folderView === key) return; folderView = key; page = 0; selected.clear(); expanded.clear(); render(); }, 'cd-chip');
+        if (iconName) node.prepend(icon(iconName));
+        node.append(el('span', 'cd-count', String(count)));
+        node.setAttribute('aria-pressed', String(folderView === key)); node.disabled = locked;
+        return node;
+    };
+    const chips = el('div', 'cd-chips');
+    chips.append(chip('all', '전체', drawer.items.length));
+    for (const folder of drawer.folders) chips.append(chip(folder.id, folder.name, counts.get(folder.id) || 0, 'folder'));
+    if (counts.get('')) chips.append(chip('', '폴더 없음', counts.get('')));
+    const add = iconButton('plus', editMode && selected.size ? '새 폴더를 만들고 고른 항목을 넣기' : '새 폴더 만들기', () => folderEditor(null, editMode ? [...selected] : []));
+    add.classList.add('cd-chip-add'); add.disabled = locked; chips.append(add);
+    bar.append(chips);
+    const active = drawer.folders.find(folder => folder.id === folderView);
+    if (active) {
+        const rename = iconButton('title', `「${active.name}」 이름 바꾸기`, () => folderEditor(active));
+        const remove = iconButton('trash', `「${active.name}」 폴더 지우기 (안의 항목은 남습니다)`, () => removeFolder(active));
+        rename.disabled = remove.disabled = locked; bar.append(rename, remove);
+    }
+    return bar;
+}
+function folderEditor(folder = null, ids = []) {
+    if (busy || pending) return;
+    editing = folder?.id ?? NEW_FOLDER;
+    const label = el('label', 'cd-field'); label.append(el('span', 'cd-field-label', '폴더 이름'));
+    const input = el('input', 'cd-input'); input.value = folder?.name || ''; input.maxLength = 40; input.placeholder = '예: 설정 정리, 외전, 이벤트';
+    label.append(input);
+    const cancel = () => { editing = null; render(); };
+    const save = () => {
+        if (!input.value.trim()) { note('폴더 이름을 입력해주세요.', true); input.focus(); return; }
+        commit('folder', folder ? {type:'rename', id:folder.id, name:input.value} : {type:'create', name:input.value, ids});
+    };
+    input.addEventListener('keydown', event => { if (event.key === 'Enter' && !event.isComposing) { event.preventDefault(); save(); } });
+    const hint = ids.length ? `고른 ${ids.length}개 항목을 새 폴더에 넣습니다.` : folder ? '폴더 안의 항목은 그대로입니다.' : '이 채팅의 별지 안에서만 쓰는 폴더입니다. 항목은 펼친 뒤 폴더 칸이나, 편집에서 여러 개 골라 옮길 수 있습니다.';
+    formScreen(folder ? '폴더 이름 바꾸기' : '새 폴더', [label, el('p', 'cd-hint', hint)], cancel, save);
+    input.focus();
+}
+async function removeFolder(folder) {
+    if (isLocked()) return;
+    const text = `「${folder.name}」 폴더를 지울까요? 안에 있던 항목은 지워지지 않고 '폴더 없음'으로 옮겨집니다.`;
+    const ctx = context();
+    const ok = typeof ctx.callGenericPopup === 'function' && ctx.POPUP_TYPE?.CONFIRM !== undefined ? Boolean(await ctx.callGenericPopup(text, ctx.POPUP_TYPE.CONFIRM)) : globalThis.confirm(text);
+    if (!ok) return;
+    folderView = 'all';
+    commit('folder', {type:'remove', id:folder.id});
 }
 
 async function confirmDelete(count) {
@@ -768,6 +911,8 @@ function row(item) {
         main.append(el('strong', `cd-card-title${item.title ? '' : ' cd-untitled'}`, itemTitle(item, current.text, 200)));
         const meta = [name, `#${item.index}`, new Date(item.archivedAt).toLocaleDateString()];
         if (versions.length > 1) meta.push(current.label);
+        const folderName = folderView === 'all' && currentDrawer().folders?.find(folder => folder.id === item.folder)?.name;
+        if (folderName) meta.unshift(`📁 ${folderName}`);
         main.append(el('span', 'cd-card-meta', meta.join(' · ')));
     } else {
         const line = el('span', 'cd-card-title'); line.append(el('strong', '', name), el('span', 'cd-number', `#${item.index}`));
@@ -872,7 +1017,7 @@ function showReader(item) {
     const revision = currentDrawer().revision;
     // Rebuild whenever the item is missing too, so paging never shows "0 / 0".
     if (!reader || readerRevision !== revision || !readerItems.some(x => x.key === item.key)) {
-        readerItems = archiveItems().filter(matchesSearch);
+        readerItems = shownItems().filter(matchesSearch);
         if (!readerItems.some(x => x.key === item.key)) readerItems = archiveItems();
         if (!readerItems.some(x => x.key === item.key)) readerItems = [item];
         readerRevision = revision;
@@ -1014,32 +1159,66 @@ function applyChatAppearance() {
     if (message) dialog.style.setProperty('--sl-message-bg', getComputedStyle(message).backgroundColor);
 }
 
-async function archiveFromMessage(event) {
+async function archiveFromMessage(button) {
     if (busy || pending || dialog?.open) return;
-    const index = Number(event.currentTarget.closest('.mes')?.getAttribute('mesid'));
+    const index = Number(button.closest('.mes')?.getAttribute('mesid'));
     if (!Number.isInteger(index)) return;
     openedChat = chatIdentity(context()); view = 'select'; snapshot = context().chat.slice(); selected = new Set([index]);
     await commit('archive');
 }
 
+// Same shape as SillyTavern's own message buttons (a Font Awesome glyph), so themes restyle it alike.
+function messageButton() {
+    const entry = el('div', 'sideleaf-archive-button mes_button fa-solid fa-star interactable');
+    entry.tabIndex = 0; entry.setAttribute('role', 'button'); entry.title = '별지에 보관'; entry.setAttribute('aria-label', '별지에 보관');
+    return entry;
+}
+// Inside the "…" group when there is one (where extension buttons belong, so themes that fold the
+// row never put it in place of "…"), first in it; otherwise first in the button row.
+function addButton(root) {
+    if (!root || root.querySelector('.sideleaf-archive-button')) return;
+    const target = root.querySelector('.extraMesButtons') || root.querySelector('.mes_buttons');
+    target?.prepend(messageButton());
+}
 function addMessageButtons() {
-    for (const message of document.querySelectorAll('#chat .mes[mesid]')) {
-        if (message.querySelector('.sideleaf-archive-button')) continue;
-        const target = message.querySelector('.extraMesButtons, .mes_buttons');
-        if (!target) continue;
-        // Same shape as SillyTavern's own message buttons (a Font Awesome glyph), so themes restyle it alike.
-        const entry = el('div', 'sideleaf-archive-button mes_button fa-solid fa-star interactable');
-        entry.tabIndex = 0; entry.setAttribute('role', 'button'); entry.title = '별지에 보관'; entry.setAttribute('aria-label', '별지에 보관');
-        entry.addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); archiveFromMessage(event); } });
-        // First in the row, so it sits at the left end next to the other message actions.
-        entry.addEventListener('click', archiveFromMessage); target.prepend(entry);
-    }
+    for (const message of document.querySelectorAll('#chat .mes[mesid]')) addButton(message);
 }
 
-function initialize() {
-    if (document.getElementById('sideleaf-wand')) return;
+const SETTINGS_KEY = 'sideleaf';
+const settings = () => {
+    const all = context().extensionSettings;
+    if (!all) return { messageButton: true };
+    all[SETTINGS_KEY] ??= {};
+    all[SETTINGS_KEY].messageButton ??= true;
+    return all[SETTINGS_KEY];
+};
+function applySettings() {
+    document.body.classList.toggle('sideleaf-no-message-button', !settings().messageButton);
+}
+function settingsPanel() {
+    const host = document.getElementById('extensions_settings2') || document.getElementById('extensions_settings');
+    if (!host || document.getElementById('sideleaf-settings')) return;
+    // SillyTavern's standard collapsible block, so it opens and looks like every other extension's settings.
+    const drawer = el('div', 'inline-drawer'); drawer.id = 'sideleaf-settings';
+    const head = el('div', 'inline-drawer-toggle inline-drawer-header');
+    head.append(el('b', '', '별지'), el('div', 'inline-drawer-icon fa-solid fa-circle-chevron-down down'));
+    const body = el('div', 'inline-drawer-content');
+    const label = el('label', 'checkbox_label');
+    const check = el('input'); check.type = 'checkbox'; check.checked = settings().messageButton;
+    check.addEventListener('change', () => { settings().messageButton = check.checked; context().saveSettingsDebounced?.(); applySettings(); });
+    label.append(check, el('span', '', '메시지 메뉴에 ★(별지에 보관) 버튼 표시'));
+    body.append(label, el('small', '', '꺼도 마법봉 → 별지에서 메시지를 골라 보관할 수 있습니다.'));
+    drawer.append(head, body); host.append(drawer);
+}
+
+// Runs as soon as the module loads, before the chat is drawn: the wand entry and the message
+// button then appear together with SillyTavern's own, instead of after the chat has loaded.
+let earlyDone = false;
+function installEarly() {
+    if (earlyDone) return;
     const menu = document.getElementById('extensionsMenu');
-    if (!menu) { console.warn('[Sideleaf] Wand menu unavailable'); return; }
+    if (!menu) return;
+    earlyDone = true;
     // Same markup as SillyTavern's own wand entries, so themes align the icon and label the same way.
     const container = el('div', 'extension_container interactable');
     const entry = el('div', 'list-group-item flex-container flexGap5 interactable');
@@ -1052,11 +1231,35 @@ function initialize() {
     entry.addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); open(); } });
     container.append(entry); menu.append(container);
     // Unsupported host: keep only the menu entry (which explains why) and hook into nothing else.
+    if (missingFeatures().length) return;
+    applySettings();
+    settingsPanel();
+    // The message template is copied for every message SillyTavern draws, so the button is part of
+    // each message from the start (other extensions add theirs the same way).
+    addButton(document.querySelector('#message_template .mes'));
+    // One listener for every message, including ones drawn later.
+    const activate = event => {
+        const button = event.target instanceof Element ? event.target.closest('#chat .sideleaf-archive-button') : null;
+        if (!button) return;
+        if (event.type === 'keydown') { if (event.key !== 'Enter' && event.key !== ' ') return; event.preventDefault(); }
+        archiveFromMessage(button);
+    };
+    document.addEventListener('click', activate);
+    document.addEventListener('keydown', activate);
+}
+
+let initialized = false;
+function initialize() {
+    installEarly();
+    if (initialized) return;
+    initialized = true;
+    if (!earlyDone) { console.warn('[Sideleaf] Wand menu unavailable'); return; }
     if (missingFeatures().length) { console.warn('[Sideleaf] Missing host features:', missingFeatures()); return; }
     const ctx = context();
     installQrSource(context);
     const on = (type, handler) => { if (ctx.eventTypes[type]) ctx.eventSource.on(ctx.eventTypes[type], handler); };
     let buttonsQueued = false;
+    // Messages drawn before the template had the button (or by builds without a template) catch up here.
     // A short timer instead of requestAnimationFrame: rAF stalls while the tab is in the background.
     const queueButtons = () => { if (buttonsQueued) return; buttonsQueued = true; setTimeout(() => { buttonsQueued = false; addMessageButtons(); }, 16); };
     for (const event of ['CHAT_CHANGED', 'CHARACTER_MESSAGE_RENDERED', 'USER_MESSAGE_RENDERED', 'MESSAGE_UPDATED', 'MESSAGE_SWIPED', 'MORE_MESSAGES_LOADED']) on(event, queueButtons);
@@ -1081,10 +1284,11 @@ function initialize() {
     }));
 }
 
+installEarly();
 const boot = context();
 if (boot.eventTypes?.APP_READY && boot.eventSource) {
     boot.eventSource.on(boot.eventTypes.APP_READY, initialize);
     // Builds that do not replay APP_READY to late listeners: initialize once the UI is there anyway.
-    setTimeout(() => { if (!document.getElementById('sideleaf-wand')) initialize(); }, 5000);
+    setTimeout(initialize, 5000);
 }
 else initialize();

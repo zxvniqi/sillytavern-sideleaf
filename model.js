@@ -9,7 +9,60 @@ export function readDrawer(metadata) {
     if (data.items.some(item => typeof item?.id !== 'string' || !item.message || typeof item.message !== 'object')) {
         throw new Error('별지 항목 일부가 손상되어 열지 않았습니다. 원본은 변경하지 않았습니다.');
     }
+    if (data.folders !== undefined && (!Array.isArray(data.folders) || data.folders.some(folder => typeof folder?.id !== 'string' || typeof folder?.name !== 'string'))) {
+        throw new Error('별지 폴더 정보가 손상되어 열지 않았습니다. 원본은 변경하지 않았습니다.');
+    }
     return data;
+}
+
+// Folders are optional: { folders: [{id, name}] } on the drawer and `folder` (an id) on items.
+// An item whose folder no longer exists simply counts as unfiled.
+export function folderOf(drawer, item) {
+    return drawer.folders?.some(folder => folder.id === item.folder) ? item.folder : '';
+}
+
+export function folderPlan(chat, drawer, action, idFactory) {
+    const folders = [...(drawer.folders || [])];
+    const name = String(action.name ?? '').replace(/\s+/g, ' ').trim().slice(0, 40);
+    const exists = id => folders.some(folder => folder.id === id);
+    let items = drawer.items, created = null;
+    const move = (ids, folder) => {
+        const picked = new Set(ids);
+        if (!picked.size || [...picked].some(id => !drawer.items.some(item => item.id === id))) throw new Error('보관 항목이 바뀌었습니다. 다시 선택해주세요.');
+        items = items.map(item => {
+            if (!picked.has(item.id)) return item;
+            const { folder: _, ...rest } = item;
+            return folder ? { ...rest, folder } : rest;
+        });
+    };
+    switch (action.type) {
+        case 'create':
+            if (!name) throw new Error('폴더 이름을 입력해주세요.');
+            created = idFactory();
+            folders.push({ id: created, name });
+            if (action.ids?.length) move(action.ids, created);
+            break;
+        case 'rename': {
+            if (!name) throw new Error('폴더 이름을 입력해주세요.');
+            const at = folders.findIndex(folder => folder.id === action.id);
+            if (at < 0) throw new Error('폴더가 바뀌었습니다. 다시 열어주세요.');
+            folders[at] = { ...folders[at], name };
+            break;
+        }
+        case 'remove': {
+            // Only the folder goes; its items stay in 별지, unfiled.
+            if (!exists(action.id)) throw new Error('폴더가 바뀌었습니다. 다시 열어주세요.');
+            folders.splice(folders.findIndex(folder => folder.id === action.id), 1);
+            items = items.map(item => { if (item.folder !== action.id) return item; const { folder: _, ...rest } = item; return rest; });
+            break;
+        }
+        case 'move':
+            if (action.folder && !exists(action.folder)) throw new Error('폴더가 바뀌었습니다. 다시 열어주세요.');
+            move(action.ids || [], action.folder || '');
+            break;
+        default: throw new Error('지원하지 않는 폴더 작업입니다.');
+    }
+    return { chat: chat.slice(), drawer: { ...drawer, revision: idFactory(), folders, items }, folder: created };
 }
 
 export function itemTitle(item, text, limit = 80) {
@@ -37,7 +90,9 @@ export function archivePlan(chat, drawer, indices, idFactory, now = Date.now()) 
 export function sourceTitle(source) {
     const subject = typeof source?.subject === 'string' ? source.subject.trim() : '';
     const label = typeof source?.label === 'string' ? source.label.trim() : '';
-    return (subject || label).replace(/\s+/g, ' ').slice(0, 160);
+    // "QR name · input", so results of one QR with different subjects stay apart and recognisable.
+    const title = label && subject && subject !== label ? `${label} · ${subject}` : subject || label;
+    return title.replace(/\s+/g, ' ').slice(0, 160);
 }
 
 export function orderedItems(drawer, mode = 'desc') {

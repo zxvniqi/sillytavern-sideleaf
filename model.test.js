@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { archivePlan, restorePlan, readDrawer, chatIdentity, KEY, readingVersions, editPlan, deletePlan, orderedItems, reorderPlan, sourceTitle } from './model.js';
+import { archivePlan, restorePlan, readDrawer, chatIdentity, KEY, readingVersions, editPlan, deletePlan, orderedItems, reorderPlan, sourceTitle, folderPlan, folderOf } from './model.js';
 
 let counter = 0;
 const id = () => `id-${++counter}`;
@@ -44,6 +44,28 @@ test('restoring to original positions rebuilds the order across several archive 
     assert.deepEqual(restorePlan(second.chat, second.drawer, ids, id).chat.map(x => x.mes), ['a','c','f','b','d','e']);
     const shortened = restorePlan([message('only')], second.drawer, [ids[2]], id, 'original').chat.map(x => x.mes);
     assert.deepEqual(shortened, ['only','e']);
+});
+
+test('folders group items without touching messages; removing a folder keeps its items', () => {
+    const p = archivePlan(['keep','a','b','c'].map(x=>message(x)), readDrawer({}), [1,2,3], id);
+    const [a, b, c] = p.drawer.items.map(x=>x.id);
+    const made = folderPlan(p.chat, p.drawer, {type:'create', name:'  여행\n기록 ', ids:[a, b]}, id);
+    assert.deepEqual(made.drawer.folders, [{id:made.folder, name:'여행 기록'}]);
+    assert.deepEqual(made.drawer.items.map(x=>folderOf(made.drawer, x)), [made.folder, made.folder, '']);
+    assert.deepEqual(made.drawer.items.map(x=>x.message), p.drawer.items.map(x=>x.message));
+    const persisted = readDrawer({[KEY]: JSON.parse(JSON.stringify(made.drawer))});
+    const renamed = folderPlan(p.chat, persisted, {type:'rename', id:made.folder, name:'여행'}, id).drawer;
+    assert.equal(renamed.folders[0].name, '여행');
+    const moved = folderPlan(p.chat, renamed, {type:'move', ids:[b, c], folder:''}, id).drawer;
+    assert.deepEqual(moved.items.map(x=>folderOf(moved, x)), [made.folder, '', '']);
+    const removed = folderPlan(p.chat, renamed, {type:'remove', id:made.folder}, id).drawer;
+    assert.deepEqual(removed.folders, []);
+    assert.equal(removed.items.length, 3);
+    assert.ok(removed.items.every(x=>!('folder' in x)));
+    assert.throws(() => folderPlan(p.chat, p.drawer, {type:'create', name:'  '}, id));
+    assert.throws(() => folderPlan(p.chat, p.drawer, {type:'move', ids:[a], folder:'missing'}, id));
+    assert.throws(() => readDrawer({[KEY]: {...p.drawer, folders:[{id:1}]}}));
+    assert.equal(folderOf(p.drawer, {folder:'gone'}), '');
 });
 
 test('deleting removes only the chosen items and their manual order entries', () => {
@@ -132,12 +154,13 @@ test('sorting and manual order preserve original restore order through JSON', ()
     assert.deepEqual(orderedItems({...persisted,items:[...persisted.items,extra],order:[...order,'missing',order[0]]},'manual').map(x=>x.message.mes), ['new','two','three','one']);
 });
 
-test('QR titles prefer accepted subject and tolerate malformed metadata', () => {
-    assert.equal(sourceTitle({label:'분석',subject:'  바다\n 여행  '}),'바다 여행');
+test('QR titles join the QR name and the accepted input, tolerating malformed metadata', () => {
+    assert.equal(sourceTitle({label:'분석',subject:'  바다\n 여행  '}),'분석 · 바다 여행');
     assert.equal(sourceTitle({label:'분석',subject:' '}),'분석');
+    assert.equal(sourceTitle({label:123,subject:'주제만'}),'주제만');
     assert.equal(sourceTitle({label:123,subject:{}}),'');
     const p=archivePlan([message('keep'),message('result',{sideleafSource:{label:'분석',subject:'주제'}})],readDrawer({}),[1],id);
-    assert.equal(p.drawer.items[0].title,'주제');
+    assert.equal(p.drawer.items[0].title,'분석 · 주제');
     assert.equal(p.chat.length,1);
 });
 
