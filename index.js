@@ -707,26 +707,38 @@ function declarations(style, keep) {
     }
     return out.join('; ');
 }
-function mirrorRule(rule) {
-    if (rule instanceof CSSStyleRule) {
-        if (!MIRROR_TOUCH.test(rule.selectorText)) return [];
-        const groups = { frame: [], text: [], inner: [] };
-        for (const part of topLevel(rule.selectorText, /,/)) {
-            if (!MIRROR_TOUCH.test(part)) continue; // already applies inside 별지 as written
-            const renamed = MIRROR_NAMES.reduce((text, [from, to]) => text.replace(from, to), part.trim());
-            const subject = topLevel(renamed, /[\s>+~]/).filter(Boolean).pop() || '';
-            groups[MIRROR_FRAME.test(subject) && !subject.includes('.cd-mtext') ? 'frame' : subject.includes('.cd-mtext') ? 'text' : 'inner'].push(renamed);
-        }
-        const out = [];
-        if (groups.inner.length) out.push(`${groups.inner.join(', ')} { ${rule.style.cssText} }`);
-        const text = groups.text.length && declarations(rule.style, name => TEXT_PROP.test(name));
-        if (text) out.push(`${groups.text.join(', ')} { ${text} }`);
-        // The message frames carry only variables, which the text inside inherits.
-        const vars = groups.frame.length && declarations(rule.style, name => name.startsWith('--'));
-        if (vars) out.push(`${groups.frame.join(', ')} { ${vars} }`);
-        return out;
+function mirrorStyle(selectorText, style) {
+    if (!style?.length || !MIRROR_TOUCH.test(selectorText)) return [];
+    const groups = { frame: [], text: [], inner: [] };
+    for (const part of topLevel(selectorText, /,/)) {
+        if (!MIRROR_TOUCH.test(part)) continue; // already applies inside 별지 as written
+        const renamed = MIRROR_NAMES.reduce((text, [from, to]) => text.replace(from, to), part.trim());
+        const subject = topLevel(renamed, /[\s>+~]/).filter(Boolean).pop() || '';
+        groups[MIRROR_FRAME.test(subject) && !subject.includes('.cd-mtext') ? 'frame' : subject.includes('.cd-mtext') ? 'text' : 'inner'].push(renamed);
     }
-    const inner = () => [...rule.cssRules].flatMap(mirrorRule).filter(Boolean).join('\n');
+    const out = [];
+    if (groups.inner.length) out.push(`${groups.inner.join(', ')} { ${style.cssText} }`);
+    const text = groups.text.length && declarations(style, name => TEXT_PROP.test(name));
+    if (text) out.push(`${groups.text.join(', ')} { ${text} }`);
+    // The message frames carry only variables, which the text inside inherits.
+    const vars = groups.frame.length && declarations(style, name => name.startsWith('--'));
+    if (vars) out.push(`${groups.frame.join(', ')} { ${vars} }`);
+    return out;
+}
+// CSS nesting (`#chat { & .mes_text em { … } }`) is flattened into full selectors first.
+function nestedSelector(parent, selectorText) {
+    return topLevel(selectorText, /,/).map(part => part.includes('&') ? part.replaceAll('&', `:is(${parent})`) : `:is(${parent}) ${part.trim()}`).join(', ');
+}
+function mirrorRule(rule, parent = null) {
+    if (rule instanceof CSSStyleRule) {
+        const selector = parent ? nestedSelector(parent, rule.selectorText) : rule.selectorText;
+        const out = mirrorStyle(selector, rule.style);
+        for (const child of rule.cssRules || []) out.push(...[mirrorRule(child, selector)].flat());
+        return out.filter(Boolean);
+    }
+    // Bare declarations inside a nested @media block belong to the enclosing selector.
+    if (parent && rule.style && !rule.cssRules) return mirrorStyle(parent, rule.style);
+    const inner = () => [...rule.cssRules].flatMap(child => mirrorRule(child, parent)).filter(Boolean).join('\n');
     if (rule instanceof CSSMediaRule) { const body = inner(); return body && `@media ${rule.conditionText} {\n${body}\n}`; }
     if (rule instanceof CSSSupportsRule) { const body = inner(); return body && `@supports ${rule.conditionText} {\n${body}\n}`; }
     if (globalThis.CSSLayerBlockRule && rule instanceof CSSLayerBlockRule) { const body = inner(); return body && `@layer ${rule.name} {\n${body}\n}`; }
@@ -1176,9 +1188,12 @@ function messageButton() {
 // Inside the "…" group when there is one (where extension buttons belong, so themes that fold the
 // row never put it in place of "…"), first in it; otherwise first in the button row.
 function addButton(root) {
-    if (!root || root.querySelector('.sideleaf-archive-button')) return;
-    const target = root.querySelector('.extraMesButtons') || root.querySelector('.mes_buttons');
-    target?.prepend(messageButton());
+    const target = root && (root.querySelector('.extraMesButtons') || root.querySelector('.mes_buttons'));
+    if (!target) return;
+    // Extensions loading later prepend their own buttons too; move ours back to the front.
+    const existing = root.querySelector('.sideleaf-archive-button');
+    if (existing && existing === target.firstElementChild) return;
+    target.prepend(existing || messageButton());
 }
 function addMessageButtons() {
     for (const message of document.querySelectorAll('#chat .mes[mesid]')) addButton(message);
@@ -1262,6 +1277,7 @@ function initialize() {
     // Messages drawn before the template had the button (or by builds without a template) catch up here.
     // A short timer instead of requestAnimationFrame: rAF stalls while the tab is in the background.
     const queueButtons = () => { if (buttonsQueued) return; buttonsQueued = true; setTimeout(() => { buttonsQueued = false; addMessageButtons(); }, 16); };
+    addButton(document.querySelector('#message_template .mes')); // every extension has loaded by now
     for (const event of ['CHAT_CHANGED', 'CHARACTER_MESSAGE_RENDERED', 'USER_MESSAGE_RENDERED', 'MESSAGE_UPDATED', 'MESSAGE_SWIPED', 'MORE_MESSAGES_LOADED']) on(event, queueButtons);
     addMessageButtons();
     // Preview/dry-run generation also emits STARTED, sometimes without ENDED.
