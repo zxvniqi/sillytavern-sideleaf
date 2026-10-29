@@ -35,6 +35,7 @@ let expanded = new Set();
 let editMode = false;
 let sortMode = 'desc';
 let folderView = 'all'; // folder chip: 'all', '' (no folder) or a folder id
+let chatView = 'all'; // character view chip: 'all', 'this' or another chat's file name
 let readerKey = null;
 let readerItems = [];
 let readerReturn = null;
@@ -133,6 +134,68 @@ function shownItems() {
     if (folderView === 'all') return all;
     if (folderView && !drawer.folders?.some(folder => folder.id === folderView)) { folderView = 'all'; return all; }
     return all.filter(item => folderOf(drawer, item) === folderView);
+}
+// Character view: the archives of this character's other chats are shown next to this chat's, read-only.
+// They are read only while 별지 is open and in this view; ordinary chatting never reads them.
+let others = null; // { key, status: 'loading'|'ready'|'error', items, error }
+const characterScope = (ctx = context()) => settings().scope === 'character' && ctx.groupId == null && Boolean(ctx.characters?.[ctx.characterId]?.avatar);
+const otherChat = item => Boolean(item?.otherChat);
+// Chat file names start with the character's name; chips show the rest.
+function chatLabel(name, ctx = context()) {
+    const prefix = `${ctx.characters?.[ctx.characterId]?.name ?? ''} - `;
+    return name.startsWith(prefix) && name.length > prefix.length ? name.slice(prefix.length) : name;
+}
+// Chips and tags show the first five characters; the full name is on hover and in the move prompt.
+function shortChatLabel(name) {
+    const chars = Array.from(chatLabel(name));
+    return chars.length > 5 ? `${chars.slice(0, 5).join('')}…` : chars.join('');
+}
+async function loadOtherChats(ctx) {
+    const key = chatIdentity(ctx), character = ctx.characters[ctx.characterId];
+    others = { key, status: 'loading', items: [] };
+    try {
+        // Newer builds return each chat's metadata with the list; older ones need the chat file itself.
+        const response = await fetch('/api/characters/chats', { method: 'POST', headers: ctx.getRequestHeaders(), body: JSON.stringify({ avatar_url: character.avatar, metadata: true }) });
+        if (!response.ok) throw new Error('다른 채팅 목록을 읽지 못했습니다.');
+        const names = Object.values(await response.json() || {})
+            .map(entry => ({ name: String(entry?.file_name ?? '').replace(/\.jsonl$/, ''), metadata: entry?.chat_metadata }))
+            .filter(entry => entry.name && entry.name !== ctx.chatId);
+        const reader = new ArchiveFiles({ headers: () => ctx.getRequestHeaders(), uuid: id });
+        const items = [], queue = [...names];
+        const worker = async () => {
+            while (queue.length) {
+                const { name, metadata: listed } = queue.shift();
+                try {
+                    let metadata = listed;
+                    if (metadata === undefined) {
+                        const chat = await fetch('/api/chats/get', { method: 'POST', headers: ctx.getRequestHeaders(), body: JSON.stringify({ ch_name: character.name, avatar_url: character.avatar, file_name: name }) }).then(r => r.ok ? r.json() : null);
+                        metadata = Array.isArray(chat) ? chat[0]?.chat_metadata : null;
+                    }
+                    if (!metadata?.[KEY]) continue;
+                    const drawer = await reader.load(metadata);
+                    for (const item of drawer.items) items.push({ ...item, key: `${name}\u0000${item.id}`, index: item.originalIndex, otherChat: name });
+                } catch (error) { console.warn('[Sideleaf] Skipped the archive of another chat', name, error); }
+            }
+        };
+        await Promise.all(Array.from({ length: Math.min(3, queue.length) }, worker));
+        if (others?.key !== key) return;
+        others = { key, status: 'ready', items };
+        rememberCharacterCount(ctx, items.length);
+    } catch (error) {
+        if (others?.key === key) others = { key, status: 'error', items: [], error };
+    }
+    updateWandIcon();
+    render();
+}
+// The list as the archive tab shows it: this chat's items, and in the character view the other chats' too.
+function scopedItems() {
+    const own = shownItems();
+    if (!characterScope() || editMode || chatView === 'this') return own;
+    const rest = others?.status === 'ready' ? others.items : [];
+    if (chatView !== 'all') return rest.filter(item => item.otherChat === chatView);
+    if (sortMode === 'manual') return [...own, ...rest];
+    const sign = sortMode === 'asc' ? 1 : -1;
+    return [...own, ...rest].map((item, i) => ({ item, i })).sort((a, b) => sign * (a.item.archivedAt - b.item.archivedAt) || a.i - b.i).map(x => x.item);
 }
 function matchesQuery(item, raw) {
     const query = raw.trim().toLocaleLowerCase();
@@ -322,6 +385,7 @@ async function finishSave() {
         if (target) showReader(target); else render();
     }
     if (!dialog) clearArchiveCache();
+    updateWandIcon();
     note(SAVED_NOTES[operation.kind] + (redrawFailed ? ' 채팅 화면이 바로 바뀌지 않으면 채팅을 다시 열어주세요.' : ''));
 }
 
@@ -334,7 +398,7 @@ function close(discardEdit = false) {
     clearArchiveCache();
     snapshot = []; selected.clear(); search = ''; editing = null; selectionUi = null;
     reader = false; expanded.clear(); composing = false; versionChoice.clear();
-    editMode = false; readerKey = null; readerItems = []; readerReturn = null; readerRevision = null; folderView = 'all';
+    editMode = false; readerKey = null; readerItems = []; readerReturn = null; readerRevision = null; folderView = 'all'; chatView = 'all'; others = null;
 }
 
 function downloadRecovery() {
@@ -360,7 +424,7 @@ function open() {
         return;
     }
     openedChat = chatIdentity(context());
-    view = 'archive'; page = 0; selected.clear(); search = ''; editMode = false; folderView = 'all';
+    view = 'archive'; page = 0; selected.clear(); search = ''; editMode = false; folderView = 'all'; chatView = 'all'; others = null;
     sortMode = context().accountStorage?.getItem('sideleaf.sort') || sortMode;
     const appearance = chatAppearance(), styles = measureChatStyles();
     dialog = el('dialog');
@@ -418,7 +482,11 @@ function render() {
 
     const controls = el('div', 'cd-controls');
     const tabs = el('nav', 'cd-tabs'); tabs.setAttribute('aria-label', '별지 보기');
-    for (const [key, label, count] of [['archive', '보관함', drawer.items.length], ['select', '메시지 보관하기', null]]) {
+    const scoped = characterScope(ctx);
+    if (scoped && view === 'archive' && others?.key !== chatIdentity(ctx)) loadOtherChats(ctx);
+    const otherItems = scoped && others?.status === 'ready' ? others.items : [];
+    const total = drawer.items.length + otherItems.length;
+    for (const [key, label, count] of [['archive', '보관함', total], ['select', '메시지 보관하기', null]]) {
         const tab = button(label, () => { if (view === key) return; view = key; page = 0; search = ''; editMode = false; selected.clear(); expanded.clear(); render(); }, 'cd-tab');
         tab.prepend(icon(key === 'archive' ? 'star' : 'all'));
         if (count !== null) tab.append(el('span', 'cd-count', String(count)));
@@ -445,21 +513,31 @@ function render() {
     input.addEventListener('compositionstart', () => { composing = true; clearTimeout(searchTimer); });
     input.addEventListener('compositionend', () => { composing = false; updateSearch(); });
     field.append(input); toolbar.append(field);
-    if (view === 'archive' && drawer.items.length > 1) {
+    if (view === 'archive' && total > 1) {
         const sort = selectControl('sort', '정렬', [['desc','최신순'],['asc','오래된순'],['manual','직접 정한 순서']], sortMode, setSort, 'cd-sort');
         sort.querySelector('select').disabled = locked; toolbar.append(sort);
     }
-    if (view === 'archive' && drawer.items.length && !drawer.folders?.length) {
+    // Chat chips only once another chat has something; until then the usual folder chips stay.
+    const chatChips = view === 'archive' && scoped && !editMode && (otherItems.length > 0 || others?.status !== 'ready');
+    if (view === 'archive' && drawer.items.length && !drawer.folders?.length && !chatChips) {
         const add = iconButton('folder', '폴더 만들기 · 보관 항목을 폴더로 나눠 정리합니다', () => folderEditor(null, editMode ? [...selected] : []));
         add.disabled = locked; toolbar.append(add);
     }
     controls.append(tabs, toolbar);
-    if (view === 'archive' && drawer.folders?.length) controls.append(folderBar(drawer, locked));
+    if (chatChips) {
+        if (otherItems.length) controls.append(chatBar(drawer, otherItems, locked));
+        if (others?.status === 'loading') controls.append(el('p', 'cd-hint', '이 캐릭터의 다른 채팅에서 별지를 찾는 중…'));
+        if (others?.status === 'error') {
+            const retry = el('p', 'cd-hint cd-retry', '다른 채팅의 별지를 불러오지 못했습니다. ');
+            retry.append(button('다시 시도', () => { others = null; render(); }));
+            controls.append(retry);
+        }
+    } else if (view === 'archive' && drawer.folders?.length) controls.append(folderBar(drawer, locked));
 
     if (view === 'select' && snapshot.length && chatChanged(ctx)) selected.clear();
     snapshot = ctx.chat.slice();
     const items = view === 'archive'
-        ? shownItems()
+        ? scopedItems()
         : ctx.chat.map((message, index) => ({ key: index, message, index })).reverse();
     const query = search.trim().toLocaleLowerCase();
     const filtered = query ? items.filter(matchesSearch) : items;
@@ -467,7 +545,7 @@ function render() {
     let none = null;
     if (selecting) {
         const bulk = el('div', 'cd-bulkbar');
-        const all = iconButton('all', '검색 결과의 모든 페이지를 선택', () => { filtered.forEach(item => selected.add(item.key)); render(); }, query ? `찾은 ${filtered.length}개 모두 선택` : '모두 선택');
+        const all = iconButton('all', '검색 결과의 모든 페이지를 선택', () => { filtered.forEach(item => { if (!otherChat(item)) selected.add(item.key); }); render(); }, query ? `찾은 ${filtered.length}개 모두 선택` : '모두 선택');
         all.disabled = locked || !filtered.length;
         none = iconButton('clear', '선택 해제', () => { selected.clear(); render(); }, '선택 해제');
         bulk.append(all, none);
@@ -838,6 +916,12 @@ function itemTools(item, versions, current, refresh, reading = false) {
     tools.append(el('span', 'cd-spacer'));
     if (!reading) tools.append(iconButton('book', '넓은 화면으로 읽기', () => showReader(item), '크게 읽기'));
     const copy = iconButton('copy', '지금 보이는 본문 복사', () => copyText(current.text));
+    // Another chat's item is read here; changing it happens in its own chat.
+    if (otherChat(item)) {
+        const go = iconButton('open', `「${chatLabel(item.otherChat)}」 채팅 열기 (고치기·복원은 그 채팅에서)`, () => openOtherChat(item.otherChat));
+        go.disabled = locked; tools.append(copy, go);
+        return tools;
+    }
     // One editor for title and body (the title field sits above the body).
     const body = iconButton('pencil', `제목·${current.label} 고치기`, () => editItem(item, current));
     const remove = iconButton('trash', '별지에서 삭제', () => removeItems([item.key]));
@@ -856,22 +940,47 @@ function itemTools(item, versions, current, refresh, reading = false) {
     return tools;
 }
 
+async function openOtherChat(name) {
+    if (isLocked()) return;
+    const text = `「${chatLabel(name)}」 채팅으로 이동하시겠습니까?`;
+    const ctx = context();
+    const ok = typeof ctx.callGenericPopup === 'function' && ctx.POPUP_TYPE?.CONFIRM !== undefined ? Boolean(await ctx.callGenericPopup(text, ctx.POPUP_TYPE.CONFIRM)) : globalThis.confirm(text);
+    if (!ok) return;
+    close(true);
+    try { await context().openCharacterChat(name); }
+    catch (error) { globalThis.toastr?.error('채팅을 열지 못했습니다.', '별지'); console.error('[Sideleaf]', error); }
+}
+
 // Folder choices for selects; the empty value is reserved for the "move to…" prompt.
 const NO_FOLDER = '\u0000none', NEW_FOLDER = '\u0000new';
 function folderChoices(drawer) {
     return [[NO_FOLDER, '폴더 없음'], ...(drawer.folders || []).map(folder => [folder.id, folder.name])];
 }
+function chipButton(text, count, iconName, active, locked, choose) {
+    const node = button(text, () => { if (active) return; choose(); page = 0; selected.clear(); expanded.clear(); render(); }, 'cd-chip');
+    if (iconName) node.prepend(icon(iconName));
+    node.append(el('span', 'cd-count', String(count)));
+    node.setAttribute('aria-pressed', String(active)); node.disabled = locked;
+    return node;
+}
+// Character view: one chip per chat that has an archive.
+function chatBar(drawer, otherItems, locked) {
+    const bar = el('div', 'cd-folders'); bar.setAttribute('role', 'toolbar'); bar.setAttribute('aria-label', '채팅');
+    const chips = el('div', 'cd-chips');
+    const chip = (key, text, count, iconName) => chipButton(text, count, iconName, chatView === key, locked, () => { chatView = key; });
+    const counts = new Map();
+    for (const item of otherItems) counts.set(item.otherChat, (counts.get(item.otherChat) || 0) + 1);
+    if (chatView !== 'all' && chatView !== 'this' && !counts.has(chatView)) chatView = 'all';
+    chips.append(chip('all', '전체', drawer.items.length + otherItems.length), chip('this', '이 채팅', drawer.items.length, 'chat'));
+    for (const [name, count] of counts) { const node = chip(name, shortChatLabel(name), count, 'chat'); node.title = name; chips.append(node); }
+    bar.append(chips);
+    return bar;
+}
 function folderBar(drawer, locked) {
     const bar = el('div', 'cd-folders'); bar.setAttribute('role', 'toolbar'); bar.setAttribute('aria-label', '폴더');
     const counts = new Map();
     for (const item of drawer.items) { const key = folderOf(drawer, item); counts.set(key, (counts.get(key) || 0) + 1); }
-    const chip = (key, text, count, iconName) => {
-        const node = button(text, () => { if (folderView === key) return; folderView = key; page = 0; selected.clear(); expanded.clear(); render(); }, 'cd-chip');
-        if (iconName) node.prepend(icon(iconName));
-        node.append(el('span', 'cd-count', String(count)));
-        node.setAttribute('aria-pressed', String(folderView === key)); node.disabled = locked;
-        return node;
-    };
+    const chip = (key, text, count, iconName) => chipButton(text, count, iconName, folderView === key, locked, () => { folderView = key; });
     const chips = el('div', 'cd-chips');
     chips.append(chip('all', '전체', drawer.items.length));
     for (const folder of drawer.folders) chips.append(chip(folder.id, folder.name, counts.get(folder.id) || 0, 'folder'));
@@ -967,8 +1076,10 @@ function row(item) {
         const meta = [name, `#${item.index}`, new Date(item.archivedAt).toLocaleDateString()];
         if (versions.length > 1) meta.push(current.label);
         const line = el('span', 'cd-card-meta');
-        const folderName = folderView === 'all' && currentDrawer().folders?.find(folder => folder.id === item.folder)?.name;
-        if (folderName) { const tag = el('span', 'cd-folder-tag'); tag.append(icon('folder'), folderName); line.append(tag); }
+        const folderName = !otherChat(item) && folderView === 'all' && currentDrawer().folders?.find(folder => folder.id === item.folder)?.name;
+        // Names sit in their own span so a long one is cut short with "…" (full name on hover).
+        if (folderName) { const tag = el('span', 'cd-folder-tag'); tag.append(icon('folder'), el('span', 'cd-tag-text', folderName)); tag.title = folderName; line.append(tag); }
+        if (otherChat(item)) { const tag = el('span', 'cd-folder-tag cd-chat-tag'); tag.append(icon('chat'), el('span', 'cd-tag-text', shortChatLabel(item.otherChat))); tag.title = item.otherChat; line.append(tag); }
         line.append(meta.join(' · '));
         main.append(line);
     } else {
@@ -1121,7 +1232,7 @@ function showReader(item) {
     const revision = currentDrawer().revision;
     // Rebuild whenever the item is missing too, so paging never shows "0 / 0".
     if (!reader || readerRevision !== revision || !readerItems.some(x => x.key === item.key)) {
-        readerItems = shownItems().filter(matchesSearch);
+        readerItems = scopedItems().filter(matchesSearch);
         if (!readerItems.some(x => x.key === item.key)) readerItems = archiveItems();
         if (!readerItems.some(x => x.key === item.key)) readerItems = [item];
         readerRevision = revision;
@@ -1330,11 +1441,40 @@ function addMessageButtons(measure = false) {
 const SETTINGS_KEY = 'sideleaf';
 const settings = () => {
     const all = context().extensionSettings;
-    if (!all) return { messageButton: true };
+    if (!all) return { messageButton: true, scope: 'chat' };
     all[SETTINGS_KEY] ??= {};
     all[SETTINGS_KEY].messageButton ??= true;
+    all[SETTINGS_KEY].scope ??= 'chat';
     return all[SETTINGS_KEY];
 };
+// How many messages this chat keeps, read from the link stored with the chat (no file is read).
+function storedCount(ctx = context()) {
+    const pointer = ctx.chatMetadata?.[KEY];
+    return pointer?.version === 2 ? Number(pointer.count) || 0 : Array.isArray(pointer?.items) ? pointer.items.length : 0;
+}
+// The other chats' count is remembered per character from the last time the character view loaded them.
+const countKey = ctx => `sideleaf.others.${ctx.characters?.[ctx.characterId]?.avatar}`;
+function rememberCharacterCount(ctx, count) {
+    try { ctx.accountStorage?.setItem(countKey(ctx), JSON.stringify({ chat: ctx.chatId, count })); } catch { /* best effort */ }
+}
+function otherCount(ctx) {
+    if (!characterScope(ctx)) return 0;
+    if (others?.status === 'ready' && others.key === chatIdentity(ctx)) return others.items.length;
+    try {
+        const saved = JSON.parse(ctx.accountStorage?.getItem(countKey(ctx)) || 'null');
+        // Saved while another chat was open, that count included this chat's; it only matters whether it is zero.
+        return Number(saved?.count) || 0;
+    } catch { return 0; }
+}
+// Wand menu: an outline star while nothing is kept, a filled one once something is.
+function updateWandIcon() {
+    const entry = document.getElementById('sideleaf-wand'), glyph = entry?.querySelector('.extensionsMenuExtensionButton');
+    if (!glyph) return;
+    const ctx = context(), count = storedCount(ctx) + otherCount(ctx);
+    // SillyTavern bundles only the solid icon font, so the empty star is the solid one drawn as an outline.
+    glyph.classList.toggle('sideleaf-empty-star', count === 0);
+    entry.title = count ? '별지 보관함 열기' : '별지 보관함 열기 (아직 보관한 메시지 없음)';
+}
 function applySettings() {
     document.body.classList.toggle('sideleaf-no-message-button', !settings().messageButton);
     addMessageButtons(true);
@@ -1356,6 +1496,18 @@ function settingsScreen() {
     check.addEventListener('change', () => { settings().messageButton = check.checked; ctx.saveSettingsDebounced?.(); applySettings(); });
     toggle.append(check, el('span', '', '메시지 메뉴에 ★ 버튼 표시'));
     body.append(section('메시지 메뉴', toggle, el('p', 'cd-hint', '꺼도 별지 창의 ‘메시지 보관하기’에서 골라 보관할 수 있습니다.')));
+    const scopeChoice = (value, text, hint) => {
+        const label = el('label', 'cd-toggle cd-choice');
+        const radio = el('input'); radio.type = 'radio'; radio.name = 'sideleaf-scope'; radio.value = value; radio.checked = settings().scope === value;
+        radio.addEventListener('change', () => { if (!radio.checked) return; settings().scope = value; ctx.saveSettingsDebounced?.(); others = null; chatView = 'all'; updateWandIcon(); });
+        const textBox = el('span', 'cd-choice-text'); textBox.append(el('span', '', text), el('small', '', hint));
+        label.append(radio, textBox);
+        return label;
+    };
+    body.append(section('보관함 보기',
+        scopeChoice('chat', '채팅별', '지금 채팅에 보관한 메시지만 보여 줍니다.'),
+        scopeChoice('character', '캐릭터별', '이 캐릭터의 모든 채팅에 보관한 메시지를 함께 보여 줍니다. 다른 채팅의 메시지는 읽기·복사만 되고, 고치거나 되돌리려면 그 채팅을 엽니다.'),
+        ...(ctx.groupId != null ? [el('p', 'cd-hint', '그룹 채팅에서는 언제나 채팅별로 보여 줍니다.')] : [])));
     const split = ctx.chatMetadata?.[KEY]?.version === 2;
     const backup = iconButton('download', '활성 채팅과 별지 전체를 JSONL 한 파일로 내려받기', exportArchive, '통합 백업 받기');
     const nodes = [el('p', 'cd-hint', split
@@ -1391,6 +1543,7 @@ function installEarly() {
     // Unsupported host: keep only the menu entry (which explains why) and hook into nothing else.
     if (missingFeatures().length) return;
     applySettings();
+    updateWandIcon();
     // The message template is copied for every message SillyTavern draws, so the button is part of
     // each message from the start (other extensions add theirs the same way).
     addButton(document.querySelector('#message_template .mes'));
@@ -1421,7 +1574,7 @@ function initialize() {
     let measureNext = false;
     const queueButtons = measure => { measureNext ||= measure === true; if (buttonsQueued) return; buttonsQueued = true; setTimeout(() => { buttonsQueued = false; addMessageButtons(measureNext); measureNext = false; }, 16); };
     for (const event of ['CHARACTER_MESSAGE_RENDERED', 'USER_MESSAGE_RENDERED', 'MESSAGE_UPDATED', 'MESSAGE_SWIPED', 'MORE_MESSAGES_LOADED']) on(event, () => queueButtons(false));
-    on('CHAT_CHANGED', () => queueButtons(true));
+    on('CHAT_CHANGED', () => { queueButtons(true); updateWandIcon(); });
     addMessageButtons(true);
     // Preview/dry-run generation also emits STARTED, sometimes without ENDED.
     // Read the core state instead of keeping a potentially stale event latch.
